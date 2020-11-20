@@ -33,7 +33,7 @@ To search the strategy on VGG-16 with channel pruning on convolutional layers an
 python agmc_network_pruning.py --dataset ILSVRC --model vgg16 --compression_ratio 0.5 --pruning_method cpfg --data_root [ILSVRC_dir] --output ./logs
    ```
 
-## Evaluate the compressed Model
+## Evaluate the compressed Model(Debugging)
 After searching, we can evaluate the compressed Model, which is saved on the default directory ```./logs```. 
 For example, if we want to evaluate the performance of compressed Models py running:
    ```
