@@ -30,12 +30,6 @@ def get_split_valset_ImageNet(dset_name, batch_size, n_worker, train_size, val_s
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     input_size = 224
-    # train_transform = transforms.Compose([
-    #     transforms.RandomResizedCrop(input_size),
-    #     transforms.RandomHorizontalFlip(),
-    #     transforms.ToTensor(),
-    #     normalize,
-    # ])
     test_transform = transforms.Compose([
         transforms.Resize(int(input_size / 0.875)),
         transforms.CenterCrop(input_size),

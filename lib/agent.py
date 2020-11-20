@@ -1,6 +1,4 @@
-# Code for "AMC: AutoML for Model Compression and Acceleration on Mobile Devices"
-# Yihui He*, Ji Lin*, Zhijian Liu, Hanrui Wang, Li-Jia Li, Song Han
-# {jilin, songhan}@mit.edu
+
 import itertools
 
 import numpy as np
@@ -55,7 +53,7 @@ class Critic(nn.Module):
 
 
 class DDPG(object):
-    def __init__(self, nb_states, nb_actions, args, params):
+    def __init__(self, nb_states, nb_actions, args, **params):
         for key, value in params.items():
             setattr(self, key, value)
 

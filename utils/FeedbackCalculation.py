@@ -240,13 +240,13 @@ def ErrorCaculation_MNIST(net,root='./DNN/datasets'):
     error = 100-accuracy
     return error
 
-def ErrorCaculation_FineTune(model,train_loader,val_loader,device,root='../DNN/datasets'):
+def ErrorCaculation_FineTune(model,train_loader,val_loader,device):
     dataloaders = {}
     dataloaders['train'] = train_loader
     dataloaders['val'] = val_loader
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer_ft = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-
+    print("Fine Tuning ...................")
     model, val_acc_history, best_acc=\
         train_model(model, dataloaders, criterion, optimizer_ft,device, num_epochs=20, is_inception=False)
     return model, val_acc_history, best_acc
@@ -265,7 +265,7 @@ def RewardCaculation_ImageNet(a_list,n_layers,DNN,Flops,best_accuracy,train_load
     if len(a_list) < n_layers:
         return 0
 
-    new_net = pruning_imagnet(DNN,a_list)
+    new_net = pruning_cp_fg(DNN,a_list)
     #new_net = unstructured_pruning(DNN,a_list)
     #new_net=l1_unstructured_pruning(DNN,a_list)
 
@@ -285,27 +285,25 @@ def RewardCaculation_ImageNet(a_list,n_layers,DNN,Flops,best_accuracy,train_load
     reward = error*-1
     return float(reward),float(best_accuracy)
 
-def RewardCaculation_FineTune(a_list,n_layers,DNN,Flops,best_accuracy,train_loader,val_loader,device,root = 'DNN/datasets'):
+def RewardCaculation_CIFAR(args,a_list,n_layers,DNN,best_accuracy,train_loader,val_loader,root = './logs'):
     if len(a_list) < n_layers:
         return 0
 
-    new_net = channel_pruning(DNN,a_list)
-    #new_net = unstructured_pruning(DNN,a_list)
-    #new_net=l1_unstructured_pruning(DNN,a_list)
-
-    new_net,_, acc = ErrorCaculation_FineTune(new_net,train_loader,val_loader,device,root='../DNN/datasets')
+    new_net = network_pruning(DNN,a_list,args)
+    device = torch.device(args.device)
+    new_net,_, acc = ErrorCaculation_FineTune(new_net,train_loader,val_loader,device)
 
     error = 100-acc
     if acc > best_accuracy:
         best_accuracy = acc
         torch.save(new_net.state_dict(), root+'/model.pkl')
         f = open(root+"/action_list.txt", "w")
-        print(a_list)
+
         for line in a_list:
             f.write(str(line))
             f.write('\n')
         f.close()
-    print("best accuracy",best_accuracy)
+    print("Best Accuracy of Compressed Model ",best_accuracy)
     reward = error*-1
     return float(reward),float(best_accuracy)
 

@@ -95,8 +95,8 @@ def train_model(model, dataloaders, criterion, optimizer, device, num_epochs=25,
     best_acc = 0.0
 
     for epoch in range(num_epochs):
-        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
-        print('-' * 10)
+        #print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        #print('-' * 10)
         #validate(dataloaders['val'], device, model, criterion)
         losses = AverageMeter()
         top1 = AverageMeter()
@@ -143,9 +143,8 @@ def train_model(model, dataloaders, criterion, optimizer, device, num_epochs=25,
 
                 # statistics
 
-            print(phase,' * Prec@1 {top1.avg:.3f}'
-                  .format(top1=top1))
-            #print("aaa",top1.avg)
+            #print(phase,' * Prec@1 {top1.avg:.3f}'
+                  #.format(top1=top1))
 
             # deep copy the model
             if phase == 'val' and top1.avg > best_acc:
@@ -156,8 +155,8 @@ def train_model(model, dataloaders, criterion, optimizer, device, num_epochs=25,
 
 
     time_elapsed = time.time() - since
-    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-    print('Best val Acc: {:4f}'.format(best_acc))
+    print('Fine Tuning complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    print('Acc of Compressed Model: {:4f}'.format(best_acc))
 
     # load best model weights
     model.load_state_dict(best_model_wts)

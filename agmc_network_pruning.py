@@ -9,6 +9,7 @@ import torch
 from torch.utils.data.sampler import SubsetRandomSampler
 
 from DNN import resnet
+from models.Encoder import GraphEncoder
 from models.Encoder_GCN import GraphEncoder_GCN
 from utils.FeedbackCalculation import *
 from utils.NN2Graph import *
@@ -26,12 +27,14 @@ def parse_args():
     parser.add_argument('--job', default='train', type=str, help='support option: train/export')
     parser.add_argument('--suffix', default=None, type=str, help='suffix to help you remember what experiment you ran')
     #graph encoder
+    parser.add_argument('--node_feature_size', default=50, type=int, help='the initial node feature size')
+    parser.add_argument('--pool_strategy', default='mean', type=str, help='pool strategy(mean/diff), defualt:mean')
     parser.add_argument('--embedding_size', default=30, type=int, help='embedding size of DNN\'s hidden layers')
 
     # env
     parser.add_argument('--model', default='mobilenet', type=str, help='model to prune')
     parser.add_argument('--dataset', default='imagenet', type=str, help='dataset to use (cifar/imagenet)')
-    parser.add_argument('--data_root', default='DNN/datasets/', type=str, help='dataset path')
+    parser.add_argument('--data_root', default='data', type=str, help='dataset path')
     parser.add_argument('--preserve_ratio', default=0.5, type=float, help='preserve ratio of the model')
     parser.add_argument('--lbound', default=0.2, type=float, help='minimum preserve ratio')
     parser.add_argument('--rbound', default=1., type=float, help='maximum preserve ratio')
@@ -39,9 +42,13 @@ def parse_args():
     parser.add_argument('--acc_metric', default='acc5', type=str, help='use acc1 or acc5')
     parser.add_argument('--use_real_val', dest='use_real_val', action='store_true')
     parser.add_argument('--ckpt_path', default=None, type=str, help='manual path of checkpoint')
+
+    # pruning
+
+    parser.add_argument('--compression_ratio', default=0.5, type=float,
+                        help='method to prune (fg/cp for fine-grained and channel pruning)')
     parser.add_argument('--pruning_method', default='cp', type=str,
                         help='method to prune (fg/cp for fine-grained and channel pruning)')
-    # only for channel pruning
     parser.add_argument('--n_calibration_batches', default=60, type=int,
                         help='n_calibration_batches')
     parser.add_argument('--n_points_per_layer', default=10, type=int,
@@ -65,6 +72,7 @@ def parse_args():
     parser.add_argument('--delta_decay', default=0.95, type=float,
                         help='delta decay during exploration')
     # training
+    parser.add_argument('--device', default='cuda', type=str, help='cuda/cpu')
     parser.add_argument('--max_episode_length', default=1e9, type=int, help='')
     parser.add_argument('--output', default='./logs', type=str, help='')
     parser.add_argument('--debug', dest='debug', action='store_true')
@@ -95,7 +103,7 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
     episode_reward = 0.
     observation = None
     T = []  # trajectory
-    while episode < args.num_episode:  # counting based on episode
+    while episode < args.train_episode:  # counting based on episode
         # reset if it is the start of episode
         if observation is None:
             observation = G_embedding
@@ -118,7 +126,7 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
         #     done = True
 
         # [optional] save intermideate model
-        if episode % int(args.num_episode / 3) == 0:
+        if episode % int(args.train_episode / 3) == 0:
             agent.save_model(output)
 
         # update
@@ -128,6 +136,9 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
         observation = observation2
 
         if done:  # end of episode
+            print('-' * 30)
+            print("Search Episode: ",episode)
+
             a_list = [a for r,s,s1,a,d in T]
 
             if args.dataset == "imagenet":
@@ -137,11 +148,10 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
                                                                    root=args.output)
             elif args.dataset == "cifar10":
                 a_list = act_restriction_FLOPs(a_list, net, desired_FLOPs, FLOPs, 32, 32)
-                rewards,best_accuracy = RewardCaculation_FineTune(a_list, n_layer, net, FLOPs, best_accuracy,train_loader,val_loader,device,root=args.output)
-
+                rewards,best_accuracy = RewardCaculation_CIFAR(args, a_list, n_layer, net, best_accuracy, train_loader, val_loader, root = args.output)
             T[-1][0] = rewards
             final_reward = T[-1][0]
-            print('final_reward: {}'.format(final_reward))
+            print('final_reward: {}\n'.format(final_reward))
             # agent observe and update policy
             i=0
             for r_t, s_t, s_t1, a_t, done in T:
@@ -157,35 +167,41 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
             T = []
 
 
-def load_model(model_name):
+def load_model(model_name,data_root):
+
     if model_name == "resnet56":
         net = resnet.__dict__['resnet56']()
         net = torch.nn.DataParallel(net).cuda()
-        checkpoint = torch.load('../DNN/pretrained_models/resnet56-4bfd9763.th',map_location=device)
+        path = os.path.join(data_root, "pretrained_models",'resnet56-4bfd9763.th')
+        checkpoint = torch.load(path,map_location=device)
         net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet44":
         net = resnet.__dict__['resnet44']()
         net = torch.nn.DataParallel(net).cuda()
-        checkpoint = torch.load('../DNN/pretrained_models/resnet56-4bfd9763.th', map_location=device)
+        path = os.path.join(data_root, "pretrained_models",'resnet44-014dd654.th')
+        checkpoint = torch.load(path,map_location=device)
         net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet110":
         net = resnet.__dict__['resnet110']()
         net = torch.nn.DataParallel(net).cuda()
-        checkpoint = torch.load('../DNN/pretrained_models/resnet56-4bfd9763.th', map_location=device)
+        path = os.path.join(data_root, "pretrained_models", 'resnet110-1d1ed7c2.th')
+        checkpoint = torch.load(path, map_location=device)
         net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet32":
         net = resnet.__dict__['resnet32']()
         net = torch.nn.DataParallel(net).cuda()
-        checkpoint = torch.load('../DNN/pretrained_models/resnet56-4bfd9763.th', map_location=device)
+        path = os.path.join(data_root, "pretrained_models", 'resnet32-d509ac18.th')
+        checkpoint = torch.load(path, map_location=device)
         net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet20":
         net = resnet.__dict__['resnet20']()
         net = torch.nn.DataParallel(net).cuda()
-        checkpoint = torch.load('../DNN/pretrained_models/resnet56-4bfd9763.th', map_location=device)
+        path = os.path.join(data_root, "pretrained_models", 'resnet20-12fca82f.th')
+        checkpoint = torch.load(path, map_location=device)
         net.load_state_dict(checkpoint['state_dict'])
     return net
 
@@ -203,52 +219,52 @@ def get_num_hidden_layer(net,policy):
                 n_layer += 1
     return n_layer
 def load_dataset(args):
+    path = os.path.join(args.data_root, "datasets")
     if args.dataset == "imagenet":
         img_h, img_w = 224, 224
         train_loader, val_loader, n_class = get_split_valset_ImageNet("ImageNet", 128, 4, 1000, 1000,
-                                                                      data_root='DNN/datasets/',
+                                                                      data_root=path,
                                                                       use_real_val=True, shuffle=True)
     elif args.dataset == "cifar10":
         img_h, img_w = 32, 32
         train_loader, val_loader, n_class = get_split_train_valset_CIFAR('cifar10', 256, 4, 5000, 1000,
-                                                                         data_root='DNN/datasets', use_real_val=False,
+                                                                         data_root=path, use_real_val=False,
                                                                         shuffle=True)
 
     return train_loader, val_loader, n_class
+
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args = parse_args()
-
-
-
     device = torch.device(args.device)
     nb_states = args.embedding_size
     nb_actions = 1  # just 1 action here
 
     G = DNN2Graph(args.model)
     G.to(device)
+    G_batch = torch.zeros([G.num_nodes,1]).long().cuda()
 
     print("Number of nodes:",G.num_nodes)
     print("Number of edges:", G.num_edges)
 
-    G_batch = torch.zeros([G.num_nodes,1]).long().cuda()
 
-    net = load_model(args.model)
+    net = load_model(args.model,args.data_root)
     net.to(device)
     cudnn.benchmark = True
 
-
     n_layer = get_num_hidden_layer(net,args.pruning_method)
 
+    path = os.path.join(args.data_root, "datasets")
     if args.dataset == "imagenet":
         img_h, img_w = 224, 224
         train_loader, val_loader, n_class = get_split_valset_ImageNet("ImageNet", 128, 4, 1000, 1000,
-                                                                      data_root=args.data_root,
+                                                                      data_root=path,
                                                                       use_real_val=True, shuffle=True)
     elif args.dataset == "cifar10":
         img_h, img_w = 32, 32
         train_loader, val_loader, n_class = get_split_train_valset_CIFAR('cifar10', 256, 4, 5000, 1000,
-                                                                         data_root=args.data_root, use_real_val=False,
+                                                                         data_root=path, use_real_val=False,
                                                                          shuffle=True)
 
 
@@ -256,17 +272,24 @@ if __name__ == "__main__":
     print("total FLOPs:", sum(FLOPs))
     desired_FLOPs = sum(FLOPs[:]) * args.compression_ratio
 
-    graph_encoder = GraphEncoder_GCN(50, args.embedding_size, args.embedding_size)
-    # graph_encoder = torch.nn.DataParallel(graph_encoder)
+    if args.pool_strategy == "mean":
+        graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
+    elif args.pool_strategy == "diff":
+        graph_encoder = GraphEncoder(args.node_feature_size, 15, 18, 20, args.embedding_size, args.node_feature_size, 3, 10)
+    else:
+        raise NotImplementedError
     graph_encoder.to(device)
 
     env = Env(args.embedding_size,n_layer)
-    #env = torch.nn.DataParallel(env)
     env.to(device)
     # for name, module in net.named_modules():
-    agent = DDPG(nb_states, nb_actions, args)
+    params = {
+        "graph_encoder": graph_encoder,
+        "env": env
+    }
+    agent = DDPG(nb_states, nb_actions, args,**params)
 
 
 
-    train(args.train_episode, agent, env , args.output,G,net,n_layer,graph_encoder,val_loader)
+    train(agent, env, args.output, G, net, n_layer, graph_encoder, val_loader, args)
 
