@@ -1,14 +1,7 @@
-import sys
-
-
 import os
-import numpy as np
 import argparse
 from copy import deepcopy
-import torch
-from torch.utils.data.sampler import SubsetRandomSampler
-
-from DNN import resnet
+from data import resnet
 from models.Encoder import GraphEncoder
 from models.Encoder_GCN import GraphEncoder_GCN
 from utils.FeedbackCalculation import *
@@ -203,6 +196,10 @@ def load_model(model_name,data_root):
         path = os.path.join(data_root, "pretrained_models", 'resnet20-12fca82f.th')
         checkpoint = torch.load(path, map_location=device)
         net.load_state_dict(checkpoint['state_dict'])
+
+    elif model_name == "vgg16":
+        net = models.mobilenet_v2(pretrained=True).eval()
+        net = torch.nn.DataParallel(net)
     return net
 
 def get_num_hidden_layer(net,policy):

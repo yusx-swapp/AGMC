@@ -4,13 +4,7 @@ sys.path.append("..")
 import torch.nn.utils.prune as prune
 import copy
 import torch.nn as nn
-import torchvision.transforms as transforms
-from torch import optim
-import torch
-import torchvision.datasets as datasets
 
-
-import DNN.resnet as resnet
 def network_pruning(net,a_list,args):
     if not isinstance(net, nn.Module):
         print('Invalid input. Must be nn.Module')
@@ -88,18 +82,4 @@ def l1_unstructured_pruning(net,a_list):
             i+=1
 
     return newnet
-if __name__ == '__main__':
-
-
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    #55 layers
-    net = resnet.__dict__['resnet56']()
-    net = torch.nn.DataParallel(net)
-    net.to(device)
-    checkpoint = torch.load('../DNN/pretrained_models/resnet56-4bfd9763.th')
-
-    net.load_state_dict(checkpoint['state_dict'])
-
 

@@ -205,15 +205,3 @@ def Conv2Motif(module,h,w,node_features=20, nodes_id=0):
     conv_graph = Data(x=x, edge_index=edge_list)
 
     return conv_graph
-if __name__ == '__main__':
-    # DNN = CNN()
-    #
-    # DNN.load_state_dict(torch.load("../DNN/pretrain/cnn.pkl"))
-    # for name, module in DNN.named_modules():
-    #     if isinstance(module, torch.nn.Conv2d):
-    #         conv_graph = Conv2Motif(module, 18, 28, 20, 0)
-    #         print(conv_graph.num_nodes)
-    #         print(conv_graph.num_edges)
-    Motifs = torch.randn([4,10])
-
-    G = VGG2Graph(Motifs)

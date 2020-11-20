@@ -1,12 +1,10 @@
 import time
-import sys
 
 from torch import optim
 from torchvision import models
 
 
 
-#sys.path.append("..")
 from FineTune import train_model, train_model_top5
 from utils.NetworkPruning import *
 from utils.SplitDataset import get_split_valset_ImageNet
@@ -15,12 +13,9 @@ import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
-import torchvision.datasets as datasets
 import torch.backends.cudnn as cudnn
 import numpy as np, numpy
 
-from torch.nn.utils import prune
-import DNN.resnet as resnet
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
