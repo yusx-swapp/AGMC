@@ -230,7 +230,7 @@ def load_dataset(args):
 
     return train_loader, val_loader, n_class
 
-#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --output ./logs
 if __name__ == "__main__":
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args = parse_args()
