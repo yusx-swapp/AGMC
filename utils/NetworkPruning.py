@@ -13,7 +13,7 @@ def network_pruning(net,a_list,args):
     if args.pruning_method == "cp":
         candidate_net = channel_pruning(net,a_list)
     elif args.pruning_method == "fg":
-        candidate_net = l1_unstructured_pruning(net, a_list)
+        candidate_net = unstructured_pruning(net, a_list)
     elif args.pruning_method == "cpfg":
         candidate_net = pruning_cp_fg(net, a_list)
     else:

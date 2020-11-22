@@ -119,8 +119,15 @@ def load_model(model_name):
         # net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "vgg16":
+        net = models.vgg16(pretrained=True).eval()
+        net = torch.nn.DataParallel(net)
+
+    elif model_name == "mobilenetv2":
         net = models.mobilenet_v2(pretrained=True).eval()
         net = torch.nn.DataParallel(net)
+
+    else:
+        raise KeyError
     return net
 
     return train_loader, val_loader, n_class
@@ -128,13 +135,15 @@ if __name__ == '__main__':
     args = parse_args()
     device = torch.device(args.device)
 
-    path = os.path.join(args.data_root, "datasets")
-    if args.dataset == "imagenet":
+
+    if args.dataset == "ILSVRC":
+        path = args.data_root
         train_loader, val_loader, n_class = get_split_valset_ImageNet("ImageNet", 128, 4, 1000, 3000,
                                                                       data_root=path,
                                                                       use_real_val=True, shuffle=True)
 
     elif args.dataset == "cifar10":
+        path = os.path.join(args.data_root, "datasets")
         transform_test = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -147,5 +156,14 @@ if __name__ == '__main__':
 
     net = load_model(args.model)
 
-    EvalCompressedModel(args, net, val_loader, device)
-#python eval_compressed_model.py --dataset cifar10 --model resnet56 --pruning_method cp --data_root ./data --model_root ./logs/ResNet56.pkl
+    val_top1,val_top5 = EvalCompressedModel(args, net, val_loader, device)
+    if args.dataset == "cifar10":
+        print("Top-1 val", ' * Prec@1 {top1:.3f}'
+              .format(top1=val_top1))
+        print("Top-5 val", ' * Prec@5 {top5:.3f}'
+              .format(top5=val_top5))
+    elif args.dataset == "ILSVRC":
+        print("Top-5 val", ' * Prec@5 {top5:.3f}'
+              .format(top5=val_top5))
+#python eval_compressed_model.py --dataset cifar10 --model resnet56 --pruning_method cp --data_root ./data --model_root ./logs/resnet56.pkl
+#python eval_compressed_model.py --dataset ILSVRC --model mobilenetv2 --pruning_method cpfg --data_root data/datasets/dat1 --model_root ./logs/mobilenetv2.pkl

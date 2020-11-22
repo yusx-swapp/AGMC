@@ -33,20 +33,46 @@ def select_action( a, episode):
     # self.a_t = action
     return action
 
-def act_restriction_FLOPs(a_list,DNN,desired,FLOPs,h,w,n_a=40,start=15,sample=False):
+def act_restriction_FLOPs(args, a_list,DNN,desired,FLOPs,h,w):
     total_FLOPs = sum(FLOPs)
-    current_FLOPs = FlopsCaculation_(DNN, h, w, a_list)
-    reduced_FLOPs = total_FLOPs - sum(current_FLOPs)
 
-    if reduced_FLOPs < desired:
-        print("reduced_FLOPs < desired")
-        duty = desired - reduced_FLOPs
+    if args.pruning_method == 'cpfg':
+        s = []
+        i=0
+        for name, module in DNN.named_modules():
+            if isinstance(module, torch.nn.Conv2d):
+                s.append(a_list[i])
+                i += 1
+            if isinstance(module, torch.nn.Linear):
+                i += 1
+        current_FLOPs = FlopsCaculation_(DNN, h, w, s)
+        reduced_FLOPs = total_FLOPs - sum(current_FLOPs)
+        if reduced_FLOPs < desired:
+            duty = desired - reduced_FLOPs
 
-        s_a = len(a_list)-sum(a_list)
+            s_a = len(s)-sum(s)
+            i=0
+            j=0
+            for name, module in DNN.named_modules():
+                if isinstance(module, torch.nn.Conv2d):
+                    a_list[i] -= ((duty * (1 - a_list[i])) / s_a) / FLOPs[j]
+                    a_list[i] = np.clip(a_list[i], lbound, rbound)
+                    i += 1
+                    j += 1
+                if isinstance(module, torch.nn.Linear):
+                    i += 1
+    elif args.pruning_method == 'cp':
+        current_FLOPs = FlopsCaculation_(DNN, h, w, a_list)
+        reduced_FLOPs = total_FLOPs - sum(current_FLOPs)
 
-        for i in range(len(a_list)):
-            a_list[i] -= ((duty * (1-a_list[i])) / s_a) / FLOPs[i]
-            a_list[i] = np.clip(a_list[i], lbound, rbound)
+        if reduced_FLOPs < desired:
+            duty = desired - reduced_FLOPs
+
+            s_a = len(a_list) - sum(a_list)
+
+            for i in range(len(a_list)):
+                a_list[i] -= ((duty * (1 - a_list[i])) / s_a) / FLOPs[i]
+                a_list[i] = np.clip(a_list[i], lbound, rbound)
 
     return a_list
 def get_action(a_list,DNN,t,d_FLOPs,reduced,FLOPs,a_max = 0.75):
@@ -68,9 +94,3 @@ def get_action(a_list,DNN,t,d_FLOPs,reduced,FLOPs,a_max = 0.75):
     # if a > 1:
     #     print("Aaaaaaaaaaaaaaaa123jhasdashdasjkhdjahskjdhkjasjdhjahdjahdkjashdjkahkdja\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
     return a,reduced
-
-if __name__ == '__main__':
-    a=[0,1,2,3,4,5,6]
-    b=list(range(2,len(a)))
-    print(random.sample(b,len(b)))
-    print(sum(a[3:]))

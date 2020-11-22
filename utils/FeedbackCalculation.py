@@ -71,10 +71,7 @@ def top5validate(val_loader, device,model, criterion):
 
 
             # measure elapsed time
-        print("val", ' * Prec@1 {top1.avg:.3f}'
-              .format(top1=val_top1))
-        print("val", ' * Prec@5 {top5.avg:.3f}'
-              .format(top5=val_top5))
+
     return val_top1.avg,val_top5.avg
 
 def validate(val_loader, device,model, criterion):
@@ -252,11 +249,11 @@ def ErrorCaculation_ImageNet(model,train_loader,val_loader,device):
     dataloaders['val'] = val_loader
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer_ft = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-
+    print("Fine Tuning ...................")
     model, top1, top5 = \
-        train_model_top5(model, dataloaders, criterion, optimizer_ft, device, num_epochs=20, is_inception=False)
+        train_model_top5(model, dataloaders, criterion, optimizer_ft, device, num_epochs=30, is_inception=False)
     return model, top1, top5
-def RewardCaculation_ImageNet(a_list,n_layers,DNN,Flops,best_accuracy,train_loader,val_loader,device,root = 'DNN/datasets'):
+def RewardCaculation_ImageNet(args,a_list,n_layers,DNN,best_accuracy,train_loader,val_loader,device,root = './logs'):
     if len(a_list) < n_layers:
         return 0
 
@@ -269,7 +266,7 @@ def RewardCaculation_ImageNet(a_list,n_layers,DNN,Flops,best_accuracy,train_load
     error = 100-acc
     if acc > best_accuracy:
         best_accuracy = acc
-        torch.save(new_net.state_dict(), root+'/model.pkl')
+        torch.save(new_net.state_dict(), root+'/'+args.model+'.pkl')
         f = open(root+"/action_list.txt", "w")
         print(a_list)
         for line in a_list:
@@ -291,7 +288,7 @@ def RewardCaculation_CIFAR(args,a_list,n_layers,DNN,best_accuracy,train_loader,v
     error = 100-acc
     if acc > best_accuracy:
         best_accuracy = acc
-        torch.save(new_net.state_dict(), root+'/model.pkl')
+        torch.save(new_net.state_dict(), root+'/'+args.model+'.pkl')
         f = open(root+"/action_list.txt", "w")
 
         for line in a_list:
@@ -302,56 +299,28 @@ def RewardCaculation_CIFAR(args,a_list,n_layers,DNN,best_accuracy,train_loader,v
     reward = error*-1
     return float(reward),float(best_accuracy)
 
-def RewardCaculation(a_list,n_layers,DNN,Flops,best_accuracy,val_loader,device,root = 'DNN/datasets'):
+def RewardCaculation(args,a_list,n_layers,DNN,best_accuracy,train_loader,val_loader,root = './logs'):
     if len(a_list) < n_layers:
         return 0
 
-    #cur_Flops = FlopsCaculation_(DNN,32, 32,a_list)
-    cur_Flops = FlopsCaculation_(DNN,32, 32,a_list)
+    new_net = network_pruning(DNN, a_list, args)
+    device = torch.device(args.device)
 
-    total_Flops=sum(cur_Flops)
-
-    new_net = channel_pruning(DNN,a_list)
-    #new_net = unstructured_pruning(DNN,a_list)
-    #new_net=l1_unstructured_pruning(DNN,a_list)
-
-    error = ErrorCaculation_CIFAR(new_net,val_loader,device,root)
-    #print("error", error,"accuracy", 100-error)
-    acc = 100-error
+    if args.dataset == 'cifar10':
+        new_net, _, acc = ErrorCaculation_FineTune(new_net, train_loader, val_loader, device)
+    elif args.dataset == 'ILSVRC':
+        new_net, _, acc = ErrorCaculation_ImageNet(new_net, train_loader, val_loader, device)
+    error = 100 - acc
     if acc > best_accuracy:
         best_accuracy = acc
-        torch.save(new_net.state_dict(), root+'/model.pkl')
-        f = open(root+"/action_list.txt", "w")
-        print(a_list)
+        torch.save(new_net.state_dict(), root + '/' + args.model + '.pkl')
+        f = open(root + "/action_list.txt", "w")
+
         for line in a_list:
             f.write(str(line))
             f.write('\n')
         f.close()
-    print("best accuracy",best_accuracy)
-    reward = (error + numpy.log(total_Flops))*-1
-    reward = error*-1
-    return float(reward),float(best_accuracy)
+    print("Best Accuracy of Compressed Model ", best_accuracy)
+    reward = error * -1
+    return float(reward), float(best_accuracy)
 
-if __name__ == '__main__':
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # net = resnet.__dict__['resnet56']()
-    # net = torch.nn.DataParallel(net)
-    # net.cuda()
-    # checkpoint = torch.load('../DNN/pretrained_models/resnet56-4bfd9763.th')
-    #
-    # net.load_state_dict(checkpoint['state_dict'])
-    # ErrorCaculation_CIFAR(net,device)
-    model_pyt = models.vgg16(pretrained=True).eval()
-    model_pyt = torch.nn.DataParallel(model_pyt)
-    model_pyt.cuda()
-    cudnn.benchmark = True
-
-
-    val_loader,n_class = get_split_valset_ImageNet("ImageNet", 128, 4, 3000, data_root='../DNN/datasets/',
-                      use_real_val=True, shuffle=True)
-    #get_split_dataset('imagenet', 128, 4, val_size, data_root='../data',use_real_val=False, shuffle=True)
-
-    # evaluate on validation set
-    criterion = nn.CrossEntropyLoss().to(device)
-    acc = validate(val_loader, device, model_pyt, criterion)

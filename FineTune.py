@@ -2,6 +2,7 @@ from data import resnet
 from utils.FeedbackCalculation import *
 from utils.NN2Graph import *
 torch.backends.cudnn.deterministic = True
+import copy
 
 from utils.SplitDataset import get_split_valset_CIFAR, get_split_train_valset_CIFAR
 
@@ -10,8 +11,7 @@ def train_model_top5(model, dataloaders, criterion, optimizer, device, num_epoch
     train_loader = dataloaders['train']
     val_loader = dataloaders['val']
     for epoch in range(num_epochs):
-        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
-        print('-' * 10)
+
         batch_time = AverageMeter()
         data_time = AverageMeter()
         losses = AverageMeter()
@@ -48,10 +48,8 @@ def train_model_top5(model, dataloaders, criterion, optimizer, device, num_epoch
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-        print("train", ' * Prec@1 {top1.avg:.3f}'
-              .format(top1=top1))
-        print("train", ' * Prec@5 {top5.avg:.3f}'
-              .format(top5=top5))
+
+
     model.eval()  # Set model to evaluate mode
     val_top1 = AverageMeter()
     val_top5 = AverageMeter()
@@ -75,9 +73,9 @@ def train_model_top5(model, dataloaders, criterion, optimizer, device, num_epoch
 
 
             # measure elapsed time
-        print("val", ' * Prec@1 {top1.avg:.3f}'
-              .format(top1=val_top1))
-        print("val", ' * Prec@5 {top5.avg:.3f}'
+        print('Fine Tuning complete!')
+        #print('Acc of Compressed Model: {:4f}'.format(best_acc))
+        print("Val Acc of Compressed Model", ' * Prec@5 {top5.avg:.3f}'
               .format(top5=val_top5))
     return model, val_top1.avg,val_top5.avg
 def train_model(model, dataloaders, criterion, optimizer, device, num_epochs=25, is_inception=False):

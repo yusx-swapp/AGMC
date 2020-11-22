@@ -15,7 +15,7 @@ from lib.Utils import get_output_folder, to_numpy, to_tensor
 from models.Decoder_LSTM import Decoder_Env_LSTM as Env
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='AMC search script')
+    parser = argparse.ArgumentParser(description='AGMC search script')
     #parser.add_argument()
     parser.add_argument('--job', default='train', type=str, help='support option: train/export')
     parser.add_argument('--suffix', default=None, type=str, help='suffix to help you remember what experiment you ran')
@@ -24,9 +24,9 @@ def parse_args():
     parser.add_argument('--pool_strategy', default='mean', type=str, help='pool strategy(mean/diff), defualt:mean')
     parser.add_argument('--embedding_size', default=30, type=int, help='embedding size of DNN\'s hidden layers')
 
-    # env
+    # datasets and model
     parser.add_argument('--model', default='mobilenet', type=str, help='model to prune')
-    parser.add_argument('--dataset', default='imagenet', type=str, help='dataset to use (cifar/imagenet)')
+    parser.add_argument('--dataset', default='ILSVRC', type=str, help='dataset to use (cifar/ILSVRC)')
     parser.add_argument('--data_root', default='data', type=str, help='dataset path')
     parser.add_argument('--preserve_ratio', default=0.5, type=float, help='preserve ratio of the model')
     parser.add_argument('--lbound', default=0.2, type=float, help='minimum preserve ratio')
@@ -35,17 +35,20 @@ def parse_args():
     parser.add_argument('--acc_metric', default='acc5', type=str, help='use acc1 or acc5')
     parser.add_argument('--use_real_val', dest='use_real_val', action='store_true')
     parser.add_argument('--ckpt_path', default=None, type=str, help='manual path of checkpoint')
+    parser.add_argument('--train_size', default=50000, type=int, help='(Fine tuning) training size of the datasets.')
+    parser.add_argument('--val_size', default=10000, type=int, help='(Reward caculation) test size of the datasets.')
+    parser.add_argument('--f_epochs', default=20, type=int, help='Fast fine-tuning epochs.')
 
     # pruning
 
     parser.add_argument('--compression_ratio', default=0.5, type=float,
-                        help='method to prune (fg/cp for fine-grained and channel pruning)')
+                        help='compression_ratio')
     parser.add_argument('--pruning_method', default='cp', type=str,
-                        help='method to prune (fg/cp for fine-grained and channel pruning)')
+                        help='method to prune (fg/cp/cpfg for fine-grained and channel pruning)')
     parser.add_argument('--n_calibration_batches', default=60, type=int,
                         help='n_calibration_batches')
     parser.add_argument('--n_points_per_layer', default=10, type=int,
-                        help='method to prune (fg/cp for fine-grained and channel pruning)')
+                        help='n_points_per_layer')
     parser.add_argument('--channel_round', default=8, type=int, help='Round channel to multiple of channel_round')
     # ddpg
     parser.add_argument('--hidden1', default=300, type=int, help='hidden num of first fully connect layer')
@@ -85,6 +88,10 @@ def parse_args():
 
     return parser.parse_args()
 def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
+
+    FLOPs = FlopsCaculation(net, img_h, img_w)
+    print("total FLOPs:", sum(FLOPs))
+    desired_FLOPs = sum(FLOPs[:]) * args.compression_ratio
 
     best_accuracy = 0
     #ErrorCaculation(net,val_loader,device)
@@ -134,14 +141,14 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
 
             a_list = [a for r,s,s1,a,d in T]
 
-            if args.dataset == "imagenet":
-                a_list = act_restriction_FLOPs(a_list, net, desired_FLOPs, FLOPs,224,224)
-                rewards, best_accuracy = RewardCaculation_ImageNet(a_list, n_layer, net, FLOPs, best_accuracy,
-                                                                   train_loader, val_loader, device,
-                                                                   root=args.output)
+            if args.dataset == "ILSVRC":
+                if args.pruning_method == 'cp' or args.pruning_method == 'cpfg':
+                    a_list = act_restriction_FLOPs(args, a_list, net, desired_FLOPs, FLOPs, 224, 224)
+                rewards, best_accuracy = RewardCaculation(args,a_list,n_layer,net,best_accuracy,train_loader,val_loader,root = args.output)
             elif args.dataset == "cifar10":
-                a_list = act_restriction_FLOPs(a_list, net, desired_FLOPs, FLOPs, 32, 32)
-                rewards,best_accuracy = RewardCaculation_CIFAR(args, a_list, n_layer, net, best_accuracy, train_loader, val_loader, root = args.output)
+                if args.pruning_method == 'cp' or args.pruning_method == 'cpfg':
+                    a_list = act_restriction_FLOPs(args, a_list, net, desired_FLOPs, FLOPs, 32, 32)
+                rewards,best_accuracy = RewardCaculation(args, a_list, n_layer, net, best_accuracy, train_loader, val_loader, root = args.output)
             T[-1][0] = rewards
             final_reward = T[-1][0]
             print('final_reward: {}\n'.format(final_reward))
@@ -198,8 +205,14 @@ def load_model(model_name,data_root):
         net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "vgg16":
+        net = models.vgg16(pretrained=True).eval()
+        net = torch.nn.DataParallel(net)
+    elif model_name == "mobilenetv2":
         net = models.mobilenet_v2(pretrained=True).eval()
         net = torch.nn.DataParallel(net)
+
+    else:
+        raise KeyError
     return net
 
 def get_num_hidden_layer(net,policy):
@@ -215,22 +228,11 @@ def get_num_hidden_layer(net,policy):
             if isinstance(module, nn.Linear):
                 n_layer += 1
     return n_layer
-def load_dataset(args):
-    path = os.path.join(args.data_root, "datasets")
-    if args.dataset == "imagenet":
-        img_h, img_w = 224, 224
-        train_loader, val_loader, n_class = get_split_valset_ImageNet("ImageNet", 128, 4, 1000, 1000,
-                                                                      data_root=path,
-                                                                      use_real_val=True, shuffle=True)
-    elif args.dataset == "cifar10":
-        img_h, img_w = 32, 32
-        train_loader, val_loader, n_class = get_split_train_valset_CIFAR('cifar10', 256, 4, 5000, 1000,
-                                                                         data_root=path, use_real_val=False,
-                                                                        shuffle=True)
 
-    return train_loader, val_loader, n_class
-
-#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --output ./logs
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --train_size 5000 --val_size 1000 --output ./logs
+#python agmc_network_pruning.py --dataset cifar10 --model resnet20 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --train_size 5000 --val_size 1000 --output ./logs
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method fg --train_episode 10 --train_size 5000 --val_size 1000 --output ./logs
+#python agmc_network_pruning.py --dataset ILSVRC --model mobilenetv2 --compression_ratio 0.3 --pruning_method cpfg --data_root data/datasets/dat1  --train_size 50000 --val_size 10000 --output ./logs
 if __name__ == "__main__":
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args = parse_args()
@@ -238,7 +240,7 @@ if __name__ == "__main__":
     nb_states = args.embedding_size
     nb_actions = 1  # just 1 action here
 
-    G = DNN2Graph(args.model)
+    G = DNN2Graph(args.model,args.node_feature_size)
     G.to(device)
     G_batch = torch.zeros([G.num_nodes,1]).long().cuda()
 
@@ -252,22 +254,22 @@ if __name__ == "__main__":
 
     n_layer = get_num_hidden_layer(net,args.pruning_method)
 
-    path = os.path.join(args.data_root, "datasets")
-    if args.dataset == "imagenet":
+    if args.dataset == "ILSVRC":
+        path = args.data_root
+
         img_h, img_w = 224, 224
-        train_loader, val_loader, n_class = get_split_valset_ImageNet("ImageNet", 128, 4, 1000, 1000,
+        train_loader, val_loader, n_class = get_split_valset_ImageNet("ILSVRC", 128, 4, args.train_size, args.val_size,
                                                                       data_root=path,
                                                                       use_real_val=True, shuffle=True)
     elif args.dataset == "cifar10":
+        path = os.path.join(args.data_root, "datasets")
         img_h, img_w = 32, 32
-        train_loader, val_loader, n_class = get_split_train_valset_CIFAR('cifar10', 256, 4, 5000, 1000,
+        train_loader, val_loader, n_class = get_split_train_valset_CIFAR('cifar10', 256, 4, args.train_size, args.val_size,
                                                                          data_root=path, use_real_val=False,
                                                                          shuffle=True)
 
 
-    FLOPs = FlopsCaculation(net, img_h, img_w)
-    print("total FLOPs:", sum(FLOPs))
-    desired_FLOPs = sum(FLOPs[:]) * args.compression_ratio
+
 
     if args.pool_strategy == "mean":
         graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
