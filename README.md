@@ -8,7 +8,7 @@ Current code base is tested under following environment:
 1. Python   3.7.9 
 2. PyTorch  1.6.0
 3. torchvision 0.7.0
-4. torch-geometric 1.6.1
+4. [torch-geometric](https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html#) 1.6.1
 5. NumPy 1.19.2 
 
 ## Training AGMC
