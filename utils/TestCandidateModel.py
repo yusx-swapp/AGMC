@@ -1,15 +1,17 @@
+from torchvision import datasets
+
+from data import resnet
 from utils.NetworkPruning import *
 from utils.FeedbackCalculation import *
 
-def LoadCompressedModel(net,path,val_loader,device):
+def EvalCompressedModel(args, net,val_loader,device):
 
 
-    net = torch.nn.DataParallel(net).cuda()
+    #net = torch.nn.DataParallel(net).cuda()
     net.to(device)
-    #net = channel_pruning(net, [1 for i in range(200)])
-    net = pruning_imagnet(net, [1 for i in range(500)])
+    path = args.model_root
+    net = network_pruning(net, [1 for i in range(500)], args)
     state_dict = torch.load(path, map_location=device)
-
     net.load_state_dict(state_dict)
     cudnn.benchmark = True
 
@@ -17,7 +19,8 @@ def LoadCompressedModel(net,path,val_loader,device):
 
     criterion = nn.CrossEntropyLoss().to(device)
 
-    top5validate(val_loader, device, net, criterion)
+    val_top1,val_top5 = top5validate(val_loader, device, net, criterion)
+    return val_top1,val_top5
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = resnet.__dict__['resnet56']()
