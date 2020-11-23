@@ -34,17 +34,17 @@ To evaluate the AGMC on the ILSVRC-2012 dataset, you need to first download the 
 To search the strategy on VGG-16 with channel pruning on convolutional layers and fine-grained pruning on dense layers, and prunes 80% FLOPs reduction on convolutional layers, by running:
 
    ```
-python agmc_network_pruning.py --dataset ILSVRC --model vgg16 --compression_ratio 0.8 --pruning_method cpfg --data_root data/datasets/dat1  --train_size 50000 --val_size 10000 --output ./logs
+python agmc_network_pruning.py --dataset ILSVRC --model vgg16 --compression_ratio 0.8 --pruning_method cpfg --data_root [data_dir] --train_size 50000 --val_size 10000 --output ./logs
    ```
 To search the strategy on MobileNet-V2 with channel pruning on convolutional layers and fine-grained pruning on dense layers, and prunes 30% FLOPs reduction on convolutional layers, by running:
    ```
-python agmc_network_pruning.py --dataset ILSVRC --model mobilenetv2 --compression_ratio 0.3 --pruning_method cpfg --data_root [data_dir]  --train_size 50000 --val_size 10000 --output ./logs
+python agmc_network_pruning.py --dataset ILSVRC --model mobilenetv2 --compression_ratio 0.3 --pruning_method cpfg --data_root [data_dir] --train_size 50000 --val_size 10000 --output ./logs
    ```
 ## Evaluate the compressed Model
 When searching, we evaluate the compressed Models with part of the validation set to speed up searching. And when we finished searching, we can evaluate the compressed Model on the whole validation set, which is saved on the default directory ```./logs```. 
 For example, if we want to evaluate the performance of the compressed ResNet56 on CIFAR-10 py running:
    ```
-python eval_compressed_model.py --dataset cifar10 --model resnet56 --pruning_method cp --data_root ./data --model_root ./logs/ResNet56.pkl
+python eval_compressed_model.py --dataset cifar10 --model resnet56 --pruning_method cp --data_root ./data --model_root ./logs/resnet56.pkl
    ```
 To evaluate the compressed VGG-16 on ILSVRC-2012, by running:
 ```
