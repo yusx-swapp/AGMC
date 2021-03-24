@@ -1,16 +1,47 @@
 import argparse
 import os
+import time
 
+import torch
+import torch.nn.functional as F
 import torchvision
-from torchvision import models, transforms
+from torch import nn
+from torch.nn.utils import prune
+from torchvision import models
+from torchvision.transforms import transforms
 
-from utils.feedback_calculation import *
+from data.resnet import LambdaLayer
+
+from utils.NetworkPruning import real_pruning, network_pruning, channel_pruning_mobilenet
 from utils.SplitDataset import get_split_valset_CIFAR, get_split_train_valset_CIFAR, get_split_valset_ImageNet, \
     get_dataset
 from data import resnet
+import torch.backends.cudnn as cudnn
+
 from utils.TestCandidateModel import EvalCompressedModel
+from utils.feedback_calculation import top5validate
 
 
+class Identity1(nn.Module):
+    def __init__(self,out_c):
+        super(Identity1, self).__init__()
+        self.out_c = out_c
+    def forward(self, x):
+        y = torch.zeros([x.shape[0],self.out_c,x.shape[2],x.shape[3]])
+        y[:x.shape[0], :x.shape[1], :x.shape[2], :x.shape[3]] = x
+        return y.cuda()
+
+
+class Identity(nn.Module):
+    def __init__(self,out_c):
+        super(Identity, self).__init__()
+        self.out_c = out_c
+    def forward(self, x):
+        return x[:,:self.out_c,:,:].cuda()
+def boolean_string(s):
+    if s not in {'False', 'True'}:
+        raise ValueError('Not a valid boolean string')
+    return s == 'True'
 def parse_args():
     parser = argparse.ArgumentParser(description='AMC search script')
     #parser.add_argument()
@@ -36,6 +67,9 @@ def parse_args():
 
     # pruning
 
+    parser.add_argument('--real_compressed', default=True, type=boolean_string,
+                        help='True/False real pruning?')
+
     parser.add_argument('--compression_ratio', default=0.5, type=float,
                         help='method to prune (fg/cp for fine-grained and channel pruning)')
     parser.add_argument('--pruning_method', default='cp', type=str,
@@ -53,7 +87,7 @@ def parse_args():
     parser.add_argument('--warmup', default=25, type=int,
                         help='time without training but only filling the replay memory')
     parser.add_argument('--discount', default=1., type=float, help='')
-    parser.add_argument('--bsize', default=64, type=int, help='minibatch size')
+    parser.add_argument('--bsize', default=32, type=int, help='minibatch size')
     parser.add_argument('--rmsize', default=100, type=int, help='memory size for each layer')
     parser.add_argument('--window_length', default=1, type=int, help='')
     parser.add_argument('--tau', default=0.01, type=float, help='moving average for target network')
@@ -88,37 +122,22 @@ def load_model(model_name):
     if model_name == "resnet56":
         net = resnet.__dict__['resnet56']()
         net = torch.nn.DataParallel(net).cuda()
-        # path = os.path.join(data_root, "pretrained_models",'resnet56-4bfd9763.th')
-        # checkpoint = torch.load(path,map_location=device)
-        # net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet44":
         net = resnet.__dict__['resnet44']()
         net = torch.nn.DataParallel(net).cuda()
-        # path = os.path.join(data_root, "pretrained_models",'resnet44-014dd654.th')
-        # checkpoint = torch.load(path,map_location=device)
-        # net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet110":
         net = resnet.__dict__['resnet110']()
         net = torch.nn.DataParallel(net).cuda()
-        # path = os.path.join(data_root, "pretrained_models", 'resnet110-1d1ed7c2.th')
-        # checkpoint = torch.load(path, map_location=device)
-        # net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet32":
         net = resnet.__dict__['resnet32']()
         net = torch.nn.DataParallel(net).cuda()
-        # path = os.path.join(data_root, "pretrained_models", 'resnet32-d509ac18.th')
-        # checkpoint = torch.load(path, map_location=device)
-        # net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "resnet20":
         net = resnet.__dict__['resnet20']()
         net = torch.nn.DataParallel(net).cuda()
-        # path = os.path.join(data_root, "pretrained_models", 'resnet20-12fca82f.th')
-        # checkpoint = torch.load(path, map_location=device)
-        # net.load_state_dict(checkpoint['state_dict'])
 
     elif model_name == "vgg16":
         net = models.vgg16(pretrained=True).eval()
@@ -142,7 +161,12 @@ def load_model(model_name):
     return net
 
     return train_loader, val_loader, n_class
-if __name__ == '__main__1':
+
+
+
+
+'''
+if __name__ == '__main__':
     args = parse_args()
     device = torch.device(args.device)
 
@@ -167,8 +191,6 @@ if __name__ == '__main__1':
 
     net = load_model(args.model)
 
-
-
     val_top1,val_top5 = EvalCompressedModel(args, net, val_loader, device)
     if args.dataset == "cifar10":
         print("Top-1 val", ' * Prec@1 {top1:.3f}'
@@ -178,20 +200,18 @@ if __name__ == '__main__1':
     elif args.dataset == "ILSVRC":
         print("Top-5 val", ' * Prec@5 {top5:.3f}'
               .format(top5=val_top5))
-
+              
+'''
 if __name__ == '__main__':
-
     args = parse_args()
     device = torch.device(args.device)
 
     if args.dataset == "ILSVRC":
         path = args.data_root
-        train_loader, val_loader, n_class = get_dataset("imagenet", 128, 4, data_root=path)
-
-        # path = args.data_root
-        # train_loader, val_loader, n_class = get_split_valset_ImageNet("ImageNet", 128, 4, 1000, 3000,
-        #                                                               data_root=path,
-        #                                                               use_real_val=True, shuffle=True)
+        #train_loader, val_loader, n_class = get_dataset("imagenet", 128, 4, data_root=path)
+        train_loader, val_loader, n_class = get_split_valset_ImageNet("ImageNet", 32, 4, 1000, 3000,
+                                                                       data_root=path,
+                                                                       use_real_val=True, shuffle=True)
 
     elif args.dataset == "cifar10":
         path = os.path.join(args.data_root, "datasets")
@@ -201,52 +221,65 @@ if __name__ == '__main__':
         ])
         val = torchvision.datasets.CIFAR10(root=path, train=False, download=True, transform=transform_test)
 
-        val_loader = torch.utils.data.DataLoader(val, batch_size=256, shuffle=False,
+        val_loader = torch.utils.data.DataLoader(val, batch_size=args.bsize, shuffle=False,
                                                  num_workers=4, pin_memory=True)
 
+
     net = load_model(args.model)
+    net.to(device)
+    path = args.model_root
+
+    net = channel_pruning_mobilenet(net, torch.ones(100, 1))
+    #net = network_pruning(net, [0 for i in range(500)], args)#create mask for pruned network
+    checkpoint = torch.load(path, map_location=device)
+    state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+    net.load_state_dict(state_dict)
+    #ResNet 不用这个
+    for name, module in net.named_modules(): #remove mask
+
+        if isinstance(module, nn.Conv2d):
+            if args.model =='mobilenet' and module.groups == module.in_channels:#TODO
+                continue
+            module = prune.remove(module,name='weight')
+    print(net)
+
+    if args.real_compressed:
+        #print("aaaaa")
+        net = real_pruning(args, net)
+    cudnn.benchmark = True
+    print(net)
+
     criterion = nn.CrossEntropyLoss().to(device)
-    #
-    # prunable_layer_types = [torch.nn.Conv2d]
-    # if args.model== "mobilenet":
-    #     input_x = torch.randn([1,3,224,224]).cuda()
-    #
-    #     flops, flops_share = flops_caculation_forward(net, args, input_x, a_list=torch.randn([14,1]))
-    #     print(flops)
-    #     print(flops_share)
-    #     print(len(flops),len(flops_share))
-    #     # for  name,module in net.module.features.named_children():
-    #     #     print(module)
-    #     #     if name =='1':
-    #     #         break
-    #     # print(net.module.conv1)
-    #     # for  module in net.module.conv1:
-    #     #     if isinstance(module,torch.nn.Conv2d):
-    #     #         print(module.weight.data.shape)
-    #     #         #module.weight.data = nn.Parameter(torch.randn(4,4,3,3)).cuda()
-    #
-    #     # i=0
-    #     # for name, module in net.module.features.named_children():
-    #     #     i+=1
-    #     #
-    #     # print(i)
-    #     # print(len(list(net.module.features.named_children())))
-    #         # if type(module) in prunable_layer_types:
-    #         #     if type(module) == nn.Conv2d and module.groups == module.in_channels:  # depth-wise conv, buffer
-    #         #         n_layer += 1
 
-
+    start = time.time()
     val_top1,val_top5 = top5validate(val_loader, device, net, criterion)
-    if args.dataset == "cifar10":
-        print("Top-1 val", ' * Prec@1 {top1:.3f}'
-              .format(top1=val_top1))
-        print("Top-5 val", ' * Prec@5 {top5:.3f}'
-              .format(top5=val_top5))
-    elif args.dataset == "ILSVRC":
-        print("Top-1 val", ' * Prec@1 {top1:.3f}'
-              .format(top1=val_top1))
-        print("Top-5 val", ' * Prec@5 {top5:.3f}'
-              .format(top5=val_top5))
+    end = time.time()
 
-#python eval_compressed_model.py --dataset cifar10 --model resnet56 --pruning_method cp --data_root ./data --model_root ./logs/resnet56.pkl
-#python eval_compressed_model.py --dataset ILSVRC --model mobilenet --pruning_method cpfg --data_root data/datasets --model_root ./logs/mobilenet.pkl
+    print(end - start)
+    print((end - start)/len(val_loader)/args.bsize)
+
+    start = time.time()
+    val_top1,val_top5 = top5validate(val_loader, device, net, criterion)
+    end = time.time()
+    print(end - start)
+    print((end - start)/len(val_loader)/args.bsize)
+
+    if args.real_compressed:
+            torch.save(net.state_dict(), "logs" + '/' + args.model + '_real_compressed.pkl')
+
+
+
+
+
+#python memory_saving.py --dataset cifar10 --model resnet20 --pruning_method cp --data_root ./data --model_root ./logs/resnet20.pkl
+#python memory_saving.py --dataset ILSVRC --model mobilenet --pruning_method cp --real_compressed False --data_root data/datasets --model_root ./logs/mobilenet.pkl
+#python memory_saving.py --dataset ILSVRC --model mobilenet --pruning_method cp --real_compressed True --data_root data/datasets --model_root ./logs/mobilenet.pkl
+#python memory_saving.py --dataset ILSVRC --model vgg16 --pruning_method cp --real_compressed True --data_root data/datasets --model_root ./logs/vgg16.pkl
+#python memory_saving.py --dataset ILSVRC --model vgg16 --pruning_method cp --real_compressed False --data_root data/datasets --model_root ./logs/vgg16.pkl
+#python memory_saving.py --dataset cifar10 --model resnet56 --real_compressed True --data_root ./data --model_root ./logs/resnet56.pkl
+#python memory_saving.py --dataset cifar10 --model resnet56 --real_compressed False --data_root ./data --model_root ./data/pretrained_models/resnet56-4bfd9763.th
+
+#python memory_saving.py --dataset cifar10 --model resnet20 --real_compressed False --data_root ./data --model_root ./data/pretrained_models/resnet20-12fca82f.th
+#python memory_saving.py --dataset cifar10 --model resnet20 --real_compressed True --data_root ./data --model_root ./logs/resnet20.pkl
+
+
