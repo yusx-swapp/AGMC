@@ -2,7 +2,7 @@ from torchvision import datasets
 
 from data import resnet
 from utils.NetworkPruning import *
-from utils.FeedbackCalculation import *
+from utils.feedback_calculation import *
 
 def EvalCompressedModel(args, net,val_loader,device):
 

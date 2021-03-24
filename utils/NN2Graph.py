@@ -1,11 +1,11 @@
-
 import torch
 import torch.nn as nn
 from torch_geometric.data import Data
 import torch.nn.functional as F
 import numpy
 
-def ConvSubgraph(node_cur,n_filter,edge_list,node_features,feature):
+
+def ConvSubgraph(node_cur, n_filter, edge_list, node_features, feature):
     '''
     Construct a subgraph for conv operation in a DNN
     :param node_cur:
@@ -13,17 +13,18 @@ def ConvSubgraph(node_cur,n_filter,edge_list,node_features,feature):
     :param edge_list:
     :return:
     '''
-    #node_features.append(torch.randn(feature.size()))
+    # node_features.append(torch.randn(feature.size()))
     for i in range(n_filter):
-        edge_list.append([node_cur, node_cur + (i+1)])
-        edge_list.append([node_cur + (i+1), node_cur + n_filter +1])
+        edge_list.append([node_cur, node_cur + (i + 1)])
+        edge_list.append([node_cur + (i + 1), node_cur + n_filter + 1])
         node_features.append(feature)
 
     node_features.append(torch.randn(feature.size()))
 
     node_cur += n_filter + 1
 
-    return edge_list,node_features,node_cur
+    return edge_list, node_features, node_cur
+
 
 def VGG2Graph(Motifs):
     node_cur = 0
@@ -32,7 +33,7 @@ def VGG2Graph(Motifs):
     node_features.append(torch.randn(Motifs[0].size()))
 
     ## conv 3*3 chanel 64
-    edge_list,node_features,node_cur = ConvSubgraph(node_cur,64, edge_list,node_features,Motifs[0])
+    edge_list, node_features, node_cur = ConvSubgraph(node_cur, 64, edge_list, node_features, Motifs[0])
     ## conv 3*3 chanel 64
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 64, edge_list, node_features, Motifs[0])
 
@@ -89,8 +90,9 @@ def VGG2Graph(Motifs):
 
     node_features = [t.numpy() for t in node_features]
     node_features = torch.tensor(node_features)
-    Graph = Data(edge_index=torch.tensor(edge_list).t().contiguous(),x=node_features)
+    Graph = Data(edge_index=torch.tensor(edge_list).t().contiguous(), x=node_features)
     return Graph
+
 
 def ResNet56Graph(Motifs):
     '''
@@ -104,11 +106,11 @@ def ResNet56Graph(Motifs):
 
     node_features.append(torch.randn(Motifs[0].size()))
     ## conv 7*7 chanel 64
-    edge_list,node_features,node_cur = ConvSubgraph(node_cur,64, edge_list,node_features,Motifs[0])
+    edge_list, node_features, node_cur = ConvSubgraph(node_cur, 64, edge_list, node_features, Motifs[0])
     node_cur_temp = node_cur
 
-    #3×3 max pool, stride 2
-    edge_list.append([node_cur,node_cur+1])
+    # 3×3 max pool, stride 2
+    edge_list.append([node_cur, node_cur + 1])
     node_cur += 1
     node_features.append(torch.randn(Motifs[0].size()))
 
@@ -159,9 +161,10 @@ def ResNet56Graph(Motifs):
 
     node_features = [t.numpy() for t in node_features]
     node_features = torch.tensor(node_features)
-    #32054
-    Graph = Data(edge_index=torch.tensor(edge_list).t().contiguous(),x=node_features)
+    # 32054
+    Graph = Data(edge_index=torch.tensor(edge_list).t().contiguous(), x=node_features)
     return Graph
+
 
 def ResNet20Graph(Motifs):
     '''
@@ -175,11 +178,11 @@ def ResNet20Graph(Motifs):
 
     node_features.append(torch.randn(Motifs[0].size()))
     ## conv 3*3 chanel 16
-    edge_list,node_features,node_cur = ConvSubgraph(node_cur,16, edge_list,node_features,Motifs[0])
+    edge_list, node_features, node_cur = ConvSubgraph(node_cur, 16, edge_list, node_features, Motifs[0])
     node_cur_temp = node_cur
 
-    #3×3 max pool, stride 2
-    edge_list.append([node_cur,node_cur+1])
+    # 3×3 max pool, stride 2
+    edge_list.append([node_cur, node_cur + 1])
     node_cur += 1
     node_features.append(torch.randn(Motifs[0].size()))
 
@@ -217,8 +220,9 @@ def ResNet20Graph(Motifs):
 
     node_features = [t.numpy() for t in node_features]
     node_features = torch.tensor(node_features)
-    Graph = Data(edge_index=torch.tensor(edge_list).t().contiguous(),x=node_features)
+    Graph = Data(edge_index=torch.tensor(edge_list).t().contiguous(), x=node_features)
     return Graph
+
 
 def MobileNetv2Graph(Motifs):
     node_cur = 0
@@ -230,25 +234,24 @@ def MobileNetv2Graph(Motifs):
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 32, edge_list, node_features, Motifs[0])
     node_cur_temp = node_cur
 
-    #bottleneck1
+    # bottleneck1
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 32, edge_list, node_features, Motifs[1])
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 32, edge_list, node_features, Motifs[2])
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 16, edge_list, node_features, Motifs[3])
 
-    #bottleneck2
+    # bottleneck2
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 96, edge_list, node_features, Motifs[4])
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 96, edge_list, node_features, Motifs[5])
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 24, edge_list, node_features, Motifs[6])
 
     node_cur_temp = node_cur
 
-    #bottleneck3
+    # bottleneck3
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 144, edge_list, node_features, Motifs[7])
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 144, edge_list, node_features, Motifs[8])
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 24, edge_list, node_features, Motifs[9])
 
     edge_list.append([node_cur_temp, node_cur])
-
 
     # bottleneck4
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 144, edge_list, node_features, Motifs[10])
@@ -338,30 +341,33 @@ def MobileNetv2Graph(Motifs):
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 960, edge_list, node_features, Motifs[50])
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 320, edge_list, node_features, Motifs[51])
 
-
     edge_list, node_features, node_cur = ConvSubgraph(node_cur, 1280, edge_list, node_features, Motifs[52])
-
 
     node_features = [t.numpy() for t in node_features]
     node_features = torch.tensor(node_features)
     Graph = Data(edge_index=torch.tensor(edge_list).t().contiguous(), x=node_features)
     return Graph
-def DNN2Graph(model_name,node_feature_size=50):
+
+
+def DNN2Graph(model_name, node_feature_size=50) -> object:
     # random initial node features
     initial_feature = torch.randn([70, node_feature_size])
 
-    if model_name=='resnet56':
+    if model_name == 'resnet56':
         return ResNet56Graph(initial_feature)
-    elif model_name=='resnet20':
+    elif model_name == 'resnet20':
         return ResNet20Graph(initial_feature)
     elif model_name == "vgg16":
         return VGG2Graph(initial_feature)
     elif model_name == 'mobilenetv2':
         return MobileNetv2Graph(initial_feature)
+    elif model_name == 'mobilenet':
+        return MobileNetv2Graph(initial_feature)
     else:
-        return NotImplementedError
+        raise NotImplementedError
 
-def Conv2Motif(module,h,w,node_features=20, nodes_id=0):
+
+def Conv2Motif(module, h, w, node_features=20, nodes_id=0):
     '''
         Construct a Motif for conv operation
 
@@ -377,7 +383,7 @@ def Conv2Motif(module,h,w,node_features=20, nodes_id=0):
     kernel_h, kernel_w = module.kernel_size
     padding = module.padding
     if padding != (0, 0):
-        n_split = kernel_h*kernel_w
+        n_split = kernel_h * kernel_w
     else:
         n_split = int(((w - kernel_w) / stride_w + 1) * ((h - kernel_h) / stride_h + 1))
     num_nodes = n_split * 2 + 3
@@ -389,7 +395,7 @@ def Conv2Motif(module,h,w,node_features=20, nodes_id=0):
         edge_list.append([nodes_id + n_split + 2 + i, nodes_id + num_nodes - 1])
     nodes_id = nodes_id + num_nodes
     edge_list = torch.tensor(edge_list).t().contiguous()
-    x = torch.randn([num_nodes,node_features])
+    x = torch.randn([num_nodes, node_features])
     conv_graph = Data(x=x, edge_index=edge_list)
 
     return conv_graph
