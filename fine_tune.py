@@ -1,12 +1,15 @@
 from data import resnet
-from utils.FeedbackCalculation import *
+from torch import optim
+import time
+
 from utils.NN2Graph import *
 torch.backends.cudnn.deterministic = True
 import copy
+import torch.backends.cudnn as cudnn
 
 from utils.SplitDataset import get_split_valset_CIFAR, get_split_train_valset_CIFAR
 
-def train_model_top5(model, dataloaders, criterion, optimizer, device, num_epochs=25, is_inception=False):
+def train_model_top5(model, dataloaders, criterion, optimizer, device, num_epochs=1, is_inception=False):
 
     train_loader = dataloaders['train']
     val_loader = dataloaders['val']
@@ -180,7 +183,7 @@ def accuracy(output, target, topk=(1,)):
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0)
+        correct_k = correct[:k].reshape(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
