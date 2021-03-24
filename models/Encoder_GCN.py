@@ -16,7 +16,7 @@ class GraphEncoder_GCN(nn.Module):
 
 
         self.conv1 = GCNConv(in_feature, hidden_feature)
-        self.conv2 = GCNConv(hidden_feature, hidden_feature)
+        # self.conv2 = GCNConv(hidden_feature, hidden_feature)
         self.conv3 = GCNConv(hidden_feature,out_feature)
 
         # self.linear1 = nn.Linear(hidden_feature,hidden_feature)
@@ -29,8 +29,9 @@ class GraphEncoder_GCN(nn.Module):
 
         self.relu = torch.relu
 
-    def forward(self,  Graph,batch):
-        x, edge_index = Graph.x, Graph.edge_index
+    def forward(self,  Graph):
+
+        x, edge_index,batch = Graph.x, Graph.edge_index,Graph.batch
         x = self.conv1(x, edge_index)
         x = self.relu(x)
         embedding_1 = global_mean_pool(x,batch)
@@ -53,7 +54,7 @@ class GraphEncoder_GCN(nn.Module):
         # G_embedding = self.linear4(torch.cat([embedding_1,embedding_2,embedding_3],dim=1)) #1x**
 
 
-        return self.relu(embedding_1)
+        return embedding_1
 
 if __name__ == '__main__':
     edge_index = torch.tensor([[0, 1],

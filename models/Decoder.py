@@ -32,7 +32,7 @@ class Decoder_Env_LSTM(nn.Module):
 
 
         # for n in range(self.n_channel):
-        #     #seqlen * batch *i nputsize
+        #     #seqlen * batch *inputsize
         #
         #     input,_ = self.lstm(input)
         #
