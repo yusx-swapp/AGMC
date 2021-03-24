@@ -69,11 +69,11 @@ def accuracy(output, target, topk=(1,)):
     maxk = max(topk)
     _, pred = output.topk(maxk, 1, True, True)
     pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
+    correct = pred.eq(target.reshape(1, -1).expand_as(pred))
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0)
+        correct_k = correct[:k].reshape(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
     return res + appendices
 
@@ -163,6 +163,14 @@ def get_output_folder(parent_dir, env_name):
     os.makedirs(parent_dir, exist_ok=True)
     return parent_dir
 
+
+# Custom progress bar
+# _, term_width = os.popen('stty size', 'r').read().split()
+term_width = 80
+term_width = int(term_width)
+TOTAL_BAR_LENGTH = 40.
+last_time = time.time()
+begin_time = last_time
 
 def progress_bar(current, total, msg=None):
     def format_time(seconds):

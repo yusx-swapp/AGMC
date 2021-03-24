@@ -9,22 +9,25 @@ from torch.optim import Adam
 
 from lib.memory import SequentialMemory
 from lib.Utils import to_numpy, to_tensor
+from models.Encoder_GCN import GraphEncoder_GCN
 
 criterion = nn.MSELoss()
 USE_CUDA = torch.cuda.is_available()
 
 
 class Actor(nn.Module):
-    def __init__(self, nb_states, nb_actions, hidden1=400, hidden2=300):
+    def __init__(self, node_feature_size,nb_states, nb_actions, hidden1=400, hidden2=300):
         super(Actor, self).__init__()
+        self.graph_encoder = GraphEncoder_GCN(node_feature_size, nb_states, nb_states)
         self.fc1 = nn.Linear(nb_states, hidden1)
         self.fc2 = nn.Linear(hidden1, hidden2)
         self.fc3 = nn.Linear(hidden2, nb_actions)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):
-        out = self.fc1(x)
+    def forward(self, g):
+        out = self.graph_encoder(g)
+        out = self.fc1(out)
         out = self.relu(out)
         out = self.fc2(out)
         out = self.relu(out)
@@ -34,8 +37,10 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, nb_states, nb_actions, hidden1=400, hidden2=300):
+    def __init__(self, node_feature_size,nb_states, nb_actions, hidden1=400, hidden2=300):
         super(Critic, self).__init__()
+        self.graph_encoder_critic = GraphEncoder_GCN(node_feature_size, nb_states, nb_states)
+
         self.fc11 = nn.Linear(nb_states, hidden1)
         self.fc12 = nn.Linear(nb_actions, hidden1)
         self.fc2 = nn.Linear(hidden1, hidden2)
@@ -44,7 +49,8 @@ class Critic(nn.Module):
 
     def forward(self, xs):
         x, a = xs
-        out = self.fc11(x) + self.fc12(a)
+        g = self.graph_encoder_critic(x)
+        out = self.fc11(g) + self.fc12(a)
         out = self.relu(out)
         out = self.fc2(out)
         out = self.relu(out)
@@ -53,9 +59,9 @@ class Critic(nn.Module):
 
 
 class DDPG(object):
-    def __init__(self, nb_states, nb_actions, args, **params):
-        for key, value in params.items():
-            setattr(self, key, value)
+    def __init__(self, node_feature_size,nb_states, nb_actions, args):
+        # for key, value in params.items():
+        #     setattr(self, key, value)
 
         self.nb_states = nb_states
         self.nb_actions = nb_actions
@@ -66,12 +72,12 @@ class DDPG(object):
             'hidden2': args.hidden2,
             # 'init_w': args.init_w
         }
-        self.actor = Actor(self.nb_states, self.nb_actions, **net_cfg)
-        self.actor_target = Actor(self.nb_states, self.nb_actions, **net_cfg)
-        self.actor_optim = Adam(itertools.chain(self.graph_encoder.parameters(),self.env.parameters(),self.actor.parameters(),self.env.parameters()), lr=args.lr_a)
+        self.actor = Actor(node_feature_size,self.nb_states, self.nb_actions, **net_cfg)
+        self.actor_target = Actor(node_feature_size,self.nb_states, self.nb_actions, **net_cfg)
+        self.actor_optim = Adam(self.actor.parameters(), lr=args.lr_a)
 
-        self.critic = Critic(self.nb_states, self.nb_actions, **net_cfg)
-        self.critic_target = Critic(self.nb_states, self.nb_actions, **net_cfg)
+        self.critic = Critic(node_feature_size,self.nb_states, self.nb_actions, **net_cfg)
+        self.critic_target = Critic(node_feature_size,self.nb_states, self.nb_actions, **net_cfg)
         self.critic_optim = Adam(self.critic.parameters(), lr=args.lr_c)
 
         self.hard_update(self.actor_target, self.actor)  # Make sure target is with the same weight
@@ -125,9 +131,10 @@ class DDPG(object):
 
         # Prepare for the target q batch
         with torch.no_grad():
+
             next_q_values = self.critic_target([
-                to_tensor(next_state_batch),
-                self.actor_target(to_tensor(next_state_batch)),
+                next_state_batch,
+                self.actor_target(next_state_batch),
             ])
 
         target_q_batch = to_tensor(reward_batch) + \
@@ -136,7 +143,7 @@ class DDPG(object):
         # Critic update
         self.critic.zero_grad()
 
-        q_batch = self.critic([to_tensor(state_batch), to_tensor(action_batch)])
+        q_batch = self.critic([state_batch, to_tensor(action_batch)])
 
         value_loss = criterion(q_batch, target_q_batch)
         value_loss.backward()
@@ -146,8 +153,8 @@ class DDPG(object):
         self.actor.zero_grad()
 
         policy_loss = -self.critic([
-            to_tensor(state_batch),
-            self.actor(to_tensor(state_batch))
+            state_batch,
+            self.actor(state_batch)
         ])
 
         policy_loss = policy_loss.mean()
@@ -176,16 +183,19 @@ class DDPG(object):
             # self.s_t = s_t1
 
     def random_action(self):
-        action = np.random.uniform(self.lbound, self.rbound, self.nb_actions)
+        # action = np.random.uniform(self.lbound, self.rbound, self.nb_actions)
+        action = np.random.uniform(0, 0.3, self.nb_actions)
         # self.a_t = action
         return action
 
     def select_action(self, s_t, episode):
         # assert episode >= self.warmup, 'Episode: {} warmup: {}'.format(episode, self.warmup)
-        action = to_numpy(self.actor(to_tensor(np.array(s_t).reshape(1, -1)))).squeeze(0)
+        # action = to_numpy(self.actor(to_tensor(np.array(s_t).reshape(1, -1)))).squeeze(0)
+        action = to_numpy(self.actor(s_t)).squeeze(0)
         delta = self.init_delta * (self.delta_decay ** (episode - self.warmup))
         #action += self.is_training * max(self.epsilon, 0) * self.random_process.sample()
-        action = self.sample_from_truncated_normal_distribution(lower=self.lbound, upper=self.rbound, mu=action, sigma=delta)
+        # action=np.array(action)
+        action = self.sample_from_truncated_normal_distribution(lower=self.lbound, upper=self.rbound, mu=np.mean(action), sigma=delta,size=action.shape[0])
         action = np.clip(action, self.lbound, self.rbound)
 
         # self.a_t = action

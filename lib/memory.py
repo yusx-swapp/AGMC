@@ -6,6 +6,7 @@ import warnings
 import random
 
 import numpy as np
+from torch_geometric.data import DataLoader
 
 # [reference] https://github.com/matthiasplappert/keras-rl/blob/master/rl/memory.py
 
@@ -197,11 +198,21 @@ class SequentialMemory(Memory):
             terminal1_batch.append(0. if e.terminal1 else 1.)
 
         # Prepare and validate parameters.
-        #print(state0_batch)
+        # print(state0_batch)
+        state0_batch = [s[0] for s in state0_batch]
 
-        state0_batch = np.array(state0_batch, 'double').reshape(batch_size, -1)
-        #print(state0_batch.shape)
-        state1_batch = np.array(state1_batch, 'double').reshape(batch_size, -1)
+        state0_batch = DataLoader(state0_batch, batch_size=batch_size, shuffle=True)
+        for graph in state0_batch:
+            state0_batch = graph
+            break
+
+        state1_batch = [s[0] for s in state1_batch]
+        # print(state1_batch)
+        state1_batch = DataLoader(state1_batch, batch_size=batch_size, shuffle=True)
+        for graph in state1_batch:
+            state1_batch = graph
+            break
+
         terminal1_batch = np.array(terminal1_batch, 'double').reshape(batch_size, -1)
         reward_batch = np.array(reward_batch, 'double').reshape(batch_size, -1)
         action_batch = np.array(action_batch, 'double').reshape(batch_size, -1)
