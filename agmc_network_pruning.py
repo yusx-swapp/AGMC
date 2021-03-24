@@ -1,18 +1,25 @@
 import os
 import argparse
 from copy import deepcopy
+from torchvision import models
+import torch.backends.cudnn as cudnn
 from data import resnet
 from models.Encoder import GraphEncoder
 from models.Encoder_GCN import GraphEncoder_GCN
-from utils.FeedbackCalculation import *
+from utils.feedback_calculation import *
 from utils.NN2Graph import *
-from utils.SplitDataset import get_split_valset_ImageNet, get_split_train_valset_CIFAR
-from utils.GetAction import act_restriction_FLOPs
+from utils.SplitDataset import get_split_valset_ImageNet, get_split_train_valset_CIFAR, get_split_dataset
+from utils.get_action import act_restriction_flops
+import torch
+from torch_geometric.data import DataLoader
+
+from utils.graph_construction import level2_graph
 
 torch.backends.cudnn.deterministic = True
 from lib.agent import DDPG
 from lib.Utils import get_output_folder, to_numpy, to_tensor
 from models.Decoder_LSTM import Decoder_Env_LSTM as Env
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='AGMC search script')
@@ -35,7 +42,7 @@ def parse_args():
     parser.add_argument('--acc_metric', default='acc5', type=str, help='use acc1 or acc5')
     parser.add_argument('--use_real_val', dest='use_real_val', action='store_true')
     parser.add_argument('--ckpt_path', default=None, type=str, help='manual path of checkpoint')
-    parser.add_argument('--train_size', default=50000, type=int, help='(Fine tuning) training size of the datasets.')
+    parser.add_argument('--train_size', default=10000, type=int, help='(Fine tuning) training size of the datasets.')
     parser.add_argument('--val_size', default=10000, type=int, help='(Reward caculation) test size of the datasets.')
     parser.add_argument('--f_epochs', default=20, type=int, help='Fast fine-tuning epochs.')
 
@@ -73,7 +80,7 @@ def parse_args():
     parser.add_argument('--output', default='./logs', type=str, help='')
     parser.add_argument('--debug', dest='debug', action='store_true')
     parser.add_argument('--init_w', default=0.003, type=float, help='')
-    parser.add_argument('--train_episode', default=800, type=int, help='train iters each timestep')
+    parser.add_argument('--train_episode', default=100, type=int, help='train iters each timestep')
     parser.add_argument('--epsilon', default=50000, type=int, help='linear decay of exploration policy')
     parser.add_argument('--seed', default=None, type=int, help='random seed to set')
     parser.add_argument('--n_gpu', default=1, type=int, help='number of gpu to use')
@@ -87,17 +94,11 @@ def parse_args():
     parser.add_argument('--use_new_input', dest='use_new_input', action='store_true', help='use new input feature')
 
     return parser.parse_args()
-def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
+def train(agent, output,G,net,val_loader,args):
 
-    FLOPs = FlopsCaculation(net, img_h, img_w)
-    print("total FLOPs:", sum(FLOPs))
-    desired_FLOPs = sum(FLOPs[:]) * args.compression_ratio
 
     best_accuracy = 0
-    #ErrorCaculation(net,val_loader,device)
-
-    G_embedding = graph_encoder(G, G_batch).unsqueeze(0)
-
+    # G_embedding = graph_encoder(G, G_batch).unsqueeze(0)
     agent.is_training = True
     step = episode = episode_steps = 0
     episode_reward = 0.
@@ -106,7 +107,7 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
     while episode < args.train_episode:  # counting based on episode
         # reset if it is the start of episode
         if observation is None:
-            observation = G_embedding
+            observation = G
             agent.reset(observation)
 
         # agent pick action ...
@@ -114,18 +115,13 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
             action = agent.random_action()
             # action = sample_from_truncated_normal_distribution(lower=0., upper=1., mu=env.preserve_ratio, sigma=0.5)
         else:
-            action = agent.select_action(deepcopy(to_numpy(observation)), episode=episode)
+            action = agent.select_action(deepcopy(observation), episode=episode)
 
         # env response with next_observation, reward, terminate_info
-        observation2, reward, done = env(observation.reshape(1,1,-1),to_tensor(action.reshape(1,1,-1),True).cuda(), episode_steps)
+        #observation2, reward, done = env(observation.reshape(1,1,-1),to_tensor(action.reshape(1,1,-1),True).cuda(), episode_steps)
+        observation2,reward, done = observation, 0,True
+        T.append([reward, deepcopy(g), deepcopy(g), action, done])
 
-        T.append([reward, deepcopy(to_numpy(observation)), deepcopy(to_numpy(observation2)), action, done])
-
-        # fix-length, never reach here
-        # if max_episode_length and episode_steps >= max_episode_length - 1:
-        #     done = True
-
-        # [optional] save intermideate model
         if episode % int(args.train_episode / 3) == 0:
             agent.save_model(output)
 
@@ -136,27 +132,29 @@ def train(agent, env, output,G,net,n_layer,graph_encoder,val_loader,args):
         observation = observation2
 
         if done:  # end of episode
-            print('-' * 30)
+            print('-' * 40)
             print("Search Episode: ",episode)
 
-            a_list = [a for r,s,s1,a,d in T]
+            a_list = T[-1][-2]
+            # print(a_list)
+            if args.pruning_method == 'cp':
+                a_list = 1 - np.array(a_list)
+                a_list = act_restriction_flops(args, a_list, net)
 
-            if args.dataset == "ILSVRC":
-                if args.pruning_method == 'cp' or args.pruning_method == 'cpfg':
-                    a_list = act_restriction_FLOPs(args, a_list, net, desired_FLOPs, FLOPs, 224, 224)
-                rewards, best_accuracy = RewardCaculation(args,a_list,n_layer,net,best_accuracy,train_loader,val_loader,root = args.output)
-            elif args.dataset == "cifar10":
-                if args.pruning_method == 'cp' or args.pruning_method == 'cpfg':
-                    a_list = act_restriction_FLOPs(args, a_list, net, desired_FLOPs, FLOPs, 32, 32)
-                rewards,best_accuracy = RewardCaculation(args, a_list, n_layer, net, best_accuracy, train_loader, val_loader, root = args.output)
-            T[-1][0] = rewards
+            rewards, best_accuracy = reward_caculation(args, a_list, net, best_accuracy,
+                                                      val_loader,train_loader, root=args.output)
+
+            T[-1][0] = 100+rewards
             final_reward = T[-1][0]
             print('final_reward: {}\n'.format(final_reward))
-            # agent observe and update policy
-            i=0
+            print('best_accuracy: {}\n'.format(best_accuracy))
+
+        # agent observe and update policy
+            # print(a_list)
+
             for r_t, s_t, s_t1, a_t, done in T:
-                agent.observe(final_reward, s_t, s_t1, a_list[i], done)
-                i+=1
+                agent.observe(final_reward, s_t, s_t1, a_t, done)
+
                 if episode > args.warmup:
                     agent.update_policy()
 
@@ -211,28 +209,70 @@ def load_model(model_name,data_root):
         net = models.mobilenet_v2(pretrained=True).eval()
         net = torch.nn.DataParallel(net)
 
+    elif model_name == "mobilenet":
+        from data.mobilenet import MobileNet
+        net = MobileNet(n_class=1000)
+        # net = torch.nn.DataParallel(net)
+        sd = torch.load("data/checkpoints/mobilenet_imagenet.pth.tar")
+        if 'state_dict' in sd:  # a checkpoint but not a state_dict
+            sd = sd['state_dict']
+        net.load_state_dict(sd)
+        # net = net.cuda()
+        net = torch.nn.DataParallel(net)
     else:
         raise KeyError
     return net
 
-def get_num_hidden_layer(net,policy):
-    n_layer=0
-    if policy == "cp":
-        for name, module in net.named_modules():
+def get_prunable_idx(net,args):
+    index = []
+    if args.model == 'resnet56':
+        for i, module in enumerate(net.modules()):
+        #for name, module in net.named_modules():
             if isinstance(module, nn.Conv2d):
-                n_layer += 1
+                index.append(i)
+
+
+def get_num_hidden_layer(net,args):
+    if args.pruning_method == "cp":
+        prunable_layer_types = [torch.nn.Conv2d]
     else:
+        prunable_layer_types = [torch.nn.Conv2d, torch.nn.Linear]
+    n_layer=0
+
+    if args.model== "mobilenet":
+        n_layer = len(list(net.module.features.named_children()))+1
+
+    elif args.model == "mobilenetv2":
+        net = models.mobilenet_v2()
+        for name,layer in net.named_modules():
+            if isinstance(layer,nn.Conv2d) :
+                if layer.groups == layer.in_channels:
+                    n_layer += 1
+
+
+
+
+    elif "resnet" in args.model:
+
+        n_layer+=len(list(net.module.layer1.named_children()))
+        n_layer+=len(list(net.module.layer2.named_children()))
+        n_layer+=len(list(net.module.layer3.named_children()))
+        n_layer+=1
+    elif args.model == 'vgg16':
         for name, module in net.named_modules():
             if isinstance(module, nn.Conv2d):
-                n_layer += 1
-            if isinstance(module, nn.Linear):
-                n_layer += 1
+                n_layer+=1
+    else:
+        raise NotImplementedError
     return n_layer
 
-#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --train_size 5000 --val_size 1000 --output ./logs
-#python agmc_network_pruning.py --dataset cifar10 --model resnet20 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --train_size 5000 --val_size 1000 --output ./logs
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.9 --pruning_method cp --train_episode 150 --output ./logs1
+#python agmc_network_pruning.py --dataset cifar10 --model resnet20 --compression_ratio 0.5 --pruning_method cp --train_episode 100 --output ./logs
 #python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method fg --train_episode 10 --train_size 5000 --val_size 1000 --output ./logs
-#python agmc_network_pruning.py --dataset ILSVRC --model mobilenetv2 --compression_ratio 0.3 --pruning_method cpfg --data_root data/datasets/dat1  --train_size 50000 --val_size 10000 --output ./logs
+#python agmc_network_pruning.py --dataset ILSVRC --model mobilenet --compression_ratio 0.5 --pruning_method cp --data_root data/datasets  --train_size 10000 --val_size 10000 --output ./logs
+#python agmc_network_pruning.py --dataset ILSVRC --model vgg16 --compression_ratio 0.8 --pruning_method cp --data_root data/datasets --train_size 5000 --val_size 2000 --output ./logs
+#python agmc_network_pruning.py --dataset ILSVRC --model mobilenetv2 --compression_ratio 0.5 --pruning_method cp --data_root data/datasets  --train_size 10000 --val_size 10000 --output ./logs
+
 if __name__ == "__main__":
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args = parse_args()
@@ -240,30 +280,38 @@ if __name__ == "__main__":
     nb_states = args.embedding_size
     nb_actions = 1  # just 1 action here
 
-    G = DNN2Graph(args.model,args.node_feature_size)
-    G.to(device)
-    G_batch = torch.zeros([G.num_nodes,1]).long().cuda()
-
-    print("Number of nodes:",G.num_nodes)
-    print("Number of edges:", G.num_edges)
+    # G = DNN2Graph(args.model,args.node_feature_size)
+    g = level2_graph(args.model,args.node_feature_size)
+    g.to(device)
+    # G_batch = torch.zeros(g.num_nodes).long().cuda()
+    # print(G_batch)
+    # g.batch = G_batch
+    G = DataLoader([g], batch_size=1, shuffle=True)
+    for graph in G:
+        G = graph
+        break
+    print("Number of nodes:",g.num_nodes)
+    print("Number of edges:", g.num_edges)
 
 
     net = load_model(args.model,args.data_root)
     net.to(device)
     cudnn.benchmark = True
 
-    n_layer = get_num_hidden_layer(net,args.pruning_method)
+    n_layer = get_num_hidden_layer(net,args)
+    print('number of hidden layers: ',n_layer)
+    nb_actions = n_layer  # just 1 action here
+
 
     if args.dataset == "ILSVRC":
         path = args.data_root
 
-        img_h, img_w = 224, 224
-        train_loader, val_loader, n_class = get_split_valset_ImageNet("ILSVRC", 128, 4, args.train_size, args.val_size,
+        train_loader, val_loader, n_class = get_split_dataset("imagenet", 512, 4, args.train_size, args.val_size,
                                                                       data_root=path,
-                                                                      use_real_val=True, shuffle=True)
+                                                                      use_real_val=False, shuffle=True)
     elif args.dataset == "cifar10":
         path = os.path.join(args.data_root, "datasets")
-        img_h, img_w = 32, 32
+
         train_loader, val_loader, n_class = get_split_train_valset_CIFAR('cifar10', 256, 4, args.train_size, args.val_size,
                                                                          data_root=path, use_real_val=False,
                                                                          shuffle=True)
@@ -271,24 +319,75 @@ if __name__ == "__main__":
 
 
 
-    if args.pool_strategy == "mean":
-        graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
-    elif args.pool_strategy == "diff":
-        graph_encoder = GraphEncoder(args.node_feature_size, 15, 18, 20, args.embedding_size, args.node_feature_size, 3, 10)
-    else:
-        raise NotImplementedError
-    graph_encoder.to(device)
+    # if args.pool_strategy == "mean":
+    #     graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
+    # elif args.pool_strategy == "diff":
+    #     graph_encoder = GraphEncoder(args.node_feature_size, 15, 18, 20, args.embedding_size, args.node_feature_size, 3, 10)
+    # else:
+    #     raise NotImplementedError
+    # graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
+    # graph_encoder.to(device)
 
-    env = Env(args.embedding_size,n_layer)
-    env.to(device)
-    # for name, module in net.named_modules():
-    params = {
-        "graph_encoder": graph_encoder,
-        "env": env
-    }
-    agent = DDPG(nb_states, nb_actions, args,**params)
+    # env = Env(args.embedding_size,n_layer)
+    # env.to(device)
+    #
+    # params = {
+    #     "graph_encoder": graph_encoder,
+    #     "env": env
+    # }
+
+    agent = DDPG(args.node_feature_size,nb_states, nb_actions, args)
 
 
 
-    train(agent, env, args.output, G, net, n_layer, graph_encoder, val_loader, args)
+    train(agent, args.output, G, net, val_loader, args)
 
+
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --train_episode 100 --output ./logs
+
+'''
+dataloaders = {}
+    dataloaders['train'] = train_loader
+    dataloaders['val'] = val_loader
+    criterion = nn.CrossEntropyLoss().to(device)
+    optimizer_ft = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+
+    model, val_acc_history, best_acc= \
+        train_model(net, dataloaders, criterion, optimizer_ft,device, num_epochs=20, is_inception=False)
+    validate(val_loader, device, model, criterion)
+
+    net = load_model('resnet20',args.data_root)
+    n_layer = get_num_hidden_layer(net,args)
+    G_1 = DNN2Graph('resnet20',args.node_feature_size)
+    G_1.to(device)
+    G_batch = torch.zeros([G_1.num_nodes,1]).long().cuda()
+
+    G_embedding = graph_encoder(G_1, G_batch).unsqueeze(0)
+
+    observation = G_embedding
+    a_list = []
+    for i in range(n_layer):
+        action = agent.select_action(deepcopy(to_numpy(observation)), episode=args.train_episode)
+
+        observation2, reward, done = env(observation.reshape(1,1,-1),to_tensor(action.reshape(1,1,-1),True).cuda(), i)
+        #T.append([reward, deepcopy(to_numpy(observation)), deepcopy(to_numpy(observation2)), action, done])
+        a_list.append(action)
+
+    if args.pruning_method == 'cp' or args.pruning_method == 'cpfg':
+        a_list = act_restriction_flops(args,  a_list, net)
+
+    print("Final Reward:")
+    rewards, best_accuracy = reward_caculation(args, a_list, net, 0,
+                                               val_loader, root=args.output)
+    model, val_acc_history, best_acc= \
+        train_model(net, dataloaders, criterion, optimizer_ft,device, num_epochs=150, is_inception=False)
+
+    validate(val_loader, device, model, criterion)
+'''
+
+#amp
+
+#mobilenet 0.45435380477224707
+
+
+#python agmc_network_pruning.py --dataset ILSVRC --model mobilenetv2 --compression_ratio 0.2 --pruning_method cp --data_root data/datasets  --train_size 1000 --val_size 1000 --output ./logs
