@@ -348,7 +348,7 @@ if __name__ == "__main__":
     print(_r_[25:])
 
 
-#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.1 --pruning_method cp --train_episode 3000 --output ./logs
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --output ./logs
 
 '''
 dataloaders = {}

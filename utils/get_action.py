@@ -108,7 +108,6 @@ def act_restriction_flops(args, a_list,net):
     if args.pruning_method == 'cp':
         #TODO
 
-        print("FLOPS ratio:",1-(reduced_flops / total_flops) )
         if reduced_flops < desired_flops:
             duty = desired_flops - reduced_flops
 
