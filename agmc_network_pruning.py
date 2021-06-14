@@ -20,6 +20,7 @@ from lib.agent import DDPG
 from lib.Utils import get_output_folder, to_numpy, to_tensor
 from models.Decoder_LSTM import Decoder_Env_LSTM as Env
 
+_r_ = []
 
 def parse_args():
     parser = argparse.ArgumentParser(description='AGMC search script')
@@ -147,6 +148,7 @@ def train(agent, output,G,net,val_loader,args):
             T[-1][0] = 100+rewards
             final_reward = T[-1][0]
             print('final_reward: {}\n'.format(final_reward))
+            _r_.append(final_reward-100)
             print('best_accuracy: {}\n'.format(best_accuracy))
 
         # agent observe and update policy
@@ -267,7 +269,7 @@ def get_num_hidden_layer(net,args):
     return n_layer
 
 #python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.9 --pruning_method cp --train_episode 150 --output ./logs1
-#python agmc_network_pruning.py --dataset cifar10 --model resnet20 --compression_ratio 0.5 --pruning_method cp --train_episode 100 --output ./logs
+#python agmc_network_pruning.py --dataset cifar10 --model resnet20 --compression_ratio 0.1 --pruning_method cp --train_episode 180 --output ./logs
 #python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method fg --train_episode 10 --train_size 5000 --val_size 1000 --output ./logs
 #python agmc_network_pruning.py --dataset ILSVRC --model mobilenet --compression_ratio 0.5 --pruning_method cp --data_root data/datasets  --train_size 10000 --val_size 10000 --output ./logs
 #python agmc_network_pruning.py --dataset ILSVRC --model vgg16 --compression_ratio 0.8 --pruning_method cp --data_root data/datasets --train_size 5000 --val_size 2000 --output ./logs
@@ -337,13 +339,16 @@ if __name__ == "__main__":
     # }
 
     agent = DDPG(args.node_feature_size,nb_states, nb_actions, args)
+    agent.cuda()
 
 
 
     train(agent, args.output, G, net, val_loader, args)
+    print(_r_)
+    print(_r_[25:])
 
 
-#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --train_episode 100 --output ./logs
+#python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.1 --pruning_method cp --train_episode 3000 --output ./logs
 
 '''
 dataloaders = {}

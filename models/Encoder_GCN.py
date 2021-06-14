@@ -26,6 +26,7 @@ class GraphEncoder_GCN(nn.Module):
         self.linear3 = nn.Linear(out_feature,out_feature)
         self.linear4 = nn.Linear(hidden_feature+hidden_feature+out_feature,out_feature)
 
+        self.tanh = nn.Tanh()
 
         self.relu = torch.relu
 
@@ -36,7 +37,7 @@ class GraphEncoder_GCN(nn.Module):
         x = self.relu(x)
         embedding_1 = global_mean_pool(x,batch)
         embedding_1 = self.linear1(embedding_1)
-        embedding_1 = self.relu(embedding_1)
+        embedding_1 = self.tanh(embedding_1)
         #
         # x = self.conv2(x, edge_index)
         # x = self.relu(x)
