@@ -1,3 +1,5 @@
+# Formal Code Base Would Be Released At Oct. 24 (This version is for reproducibility test)
+
 # AGMC
 AGMC: Auto Graph encoder-decoder for Model Compression and Network Acceleration
 
