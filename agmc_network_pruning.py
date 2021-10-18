@@ -105,7 +105,10 @@ def train(agent, output,G,net,val_loader,args):
     episode_reward = 0.
     observation = None
     T = []  # trajectory
+    t_start = time.time()
     while episode < args.train_episode:  # counting based on episode
+        start = time.time()
+
         # reset if it is the start of episode
         if observation is None:
             observation = G
@@ -159,12 +162,18 @@ def train(agent, output,G,net,val_loader,args):
 
                 if episode > args.warmup:
                     agent.update_policy()
-
+            end = time.time()
+            print("one episode time:", start-end)
             observation = None
             episode_steps = 0
             episode_reward = 0.
             episode += 1
             T = []
+
+
+    t_end = time.time()
+
+    print("total time:",t_start-t_end)
 
 
 def load_model(model_name,data_root):
@@ -347,6 +356,7 @@ if __name__ == "__main__":
     print(_r_)
     print(_r_[25:])
 
+#python agmc_network_pruning.py --dataset cifar10 --model resnet20 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --output ./logs
 
 #python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --output ./logs
 

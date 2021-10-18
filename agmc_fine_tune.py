@@ -119,7 +119,22 @@ def get_model():
             sd = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
             net.load_state_dict(sd)
             optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
-     # if use_cuda and args.n_gpu > 1:
+            # optimizer = Adam(net.parameters(), lr=args.lr,weight_decay=args.wd)
+    elif args.model == "resnet20":
+        net = resnet.__dict__['resnet20']()
+        net = torch.nn.DataParallel(net,list(range(args.n_gpu)))
+        net = channel_pruning(net,torch.ones(100, 1))
+        if args.ckpt_path is not None:  # assigned checkpoint path to resume from
+            print('=> Resuming from checkpoint..')
+            path = os.path.join(args.ckpt_path)
+
+            checkpoint = torch.load(path)
+            sd = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+            net.load_state_dict(sd)
+            optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
+            optimizer = Adam(net.parameters(), lr=args.lr,weight_decay=args.wd)
+
+# if use_cuda and args.n_gpu > 1:
         #     net = torch.nn.DataParallel(net, list(range(args.n_gpu)))
 
 
