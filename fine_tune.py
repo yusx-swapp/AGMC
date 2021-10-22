@@ -2,12 +2,12 @@ from data import resnet
 from torch import optim
 import time
 
-from utils.NN2Graph import *
+from utils.nn_to_graph import *
 torch.backends.cudnn.deterministic = True
 import copy
 import torch.backends.cudnn as cudnn
 
-from utils.SplitDataset import get_split_valset_CIFAR, get_split_train_valset_CIFAR
+from utils.split_data import get_split_valset_CIFAR, get_split_train_valset_CIFAR
 
 def train_model_top5(model, dataloaders, criterion, optimizer, device, num_epochs=1, is_inception=False):
 

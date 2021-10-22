@@ -5,10 +5,10 @@ import torchvision
 from torchvision import models, transforms
 
 from utils.feedback_calculation import *
-from utils.SplitDataset import get_split_valset_CIFAR, get_split_train_valset_CIFAR, get_split_valset_ImageNet, \
+from utils.split_data import get_split_valset_CIFAR, get_split_train_valset_CIFAR, get_split_valset_ImageNet, \
     get_dataset
 from data import resnet
-from utils.TestCandidateModel import EvalCompressedModel
+from utils.eval_candidate_model import EvalCompressedModel
 
 
 def parse_args():

@@ -4,11 +4,11 @@ from copy import deepcopy
 from torchvision import models
 import torch.backends.cudnn as cudnn
 from data import resnet
-from models.Encoder import GraphEncoder
-from models.Encoder_GCN import GraphEncoder_GCN
+from models.encoder import GraphEncoder
+from models.encoder_gcn import GraphEncoder_GCN
 from utils.feedback_calculation import *
-from utils.NN2Graph import *
-from utils.SplitDataset import get_split_valset_ImageNet, get_split_train_valset_CIFAR, get_split_dataset
+from utils.nn_to_graph import *
+from utils.split_data import get_split_valset_ImageNet, get_split_train_valset_CIFAR, get_split_dataset
 from utils.get_action import act_restriction_flops
 import torch
 from torch_geometric.data import DataLoader
@@ -16,15 +16,13 @@ from torch_geometric.data import DataLoader
 from utils.graph_construction import level2_graph
 
 torch.backends.cudnn.deterministic = True
-from lib.agent import DDPG
+from lib.agent import DDPG, Memory, Agent
 from lib.Utils import get_output_folder, to_numpy, to_tensor
-from models.Decoder_LSTM import Decoder_Env_LSTM as Env
+from models.decoder_lstm import Decoder_Env_LSTM as Env
 
-_r_ = []
 
 def parse_args():
     parser = argparse.ArgumentParser(description='AGMC search script')
-    #parser.add_argument()
     parser.add_argument('--job', default='train', type=str, help='support option: train/export')
     parser.add_argument('--suffix', default=None, type=str, help='suffix to help you remember what experiment you ran')
     #graph encoder
@@ -95,6 +93,133 @@ def parse_args():
     parser.add_argument('--use_new_input', dest='use_new_input', action='store_true', help='use new input feature')
 
     return parser.parse_args()
+
+def search(env,layer_share,args):
+
+    ############## Hyperparameters ##############
+    env_name = "gnnrl_search"
+    render = False
+    solved_reward = args.solved_reward         # stop training if avg_reward > solved_reward
+    log_interval = args.log_interval           # print avg reward in the interval
+    max_episodes = args.max_episodes        # max training episodes
+    max_timesteps = args.max_timesteps        # max timesteps in one episode
+
+    update_timestep = args.update_timestep      # update policy every n timesteps
+    action_std = args.action_std            # constant std for action distribution (Multivariate Normal)
+    K_epochs = args.K_epochs               # update policy for K epochs
+    eps_clip = args.eps_clip              # clip parameter for RL
+    gamma = args.gamma                # discount factor
+
+    lr = args.lr_rl                 # parameters for Adam optimizer
+    betas = (0.9, 0.999)
+
+    random_seed = args.seed
+    #############################################
+
+    state_dim = args.g_in_size
+    action_dim = layer_share
+    if random_seed:
+        print("Random Seed: {}".format(random_seed))
+        torch.manual_seed(random_seed)
+        env.seed(random_seed)
+        np.random.seed(random_seed)
+
+    memory = Memory()
+    agent = Agent(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip)
+
+    print("Learning rate: ",lr,'\t Betas: ',betas)
+    # logger.info("(Pruning)Learning rate: ",lr,'\t Betas: ',betas)
+
+
+
+
+    # logging variables
+    running_reward = 0
+    avg_length = 0
+    time_step = 0
+    observation = None
+
+    print("-*"*10,"start search the pruning policies","-*"*10)
+    # training loop
+    for i_episode in range(1, max_episodes+1):
+        state = env.reset()
+        if observation is None:
+            observation = G
+            agent.reset(observation)
+        for t in range(max_timesteps):
+            time_step +=1
+            # Running policy_old:
+            action = agent.select_action(state, memory)
+            # state, reward, done = env.step(action,t+1)
+            observation2,reward, done = observation, 0,True
+
+
+            if done:  # end of episode
+                print('-' * 40)
+                print("Search Episode: ",i_episode)
+
+                a_list = action
+                if args.pruning_method == 'cp':
+                    a_list = 1 - np.array(a_list)
+                    a_list = act_restriction_flops(args, a_list, net)
+
+                rewards, best_accuracy = reward_caculation(args, a_list, net, best_accuracy,
+                                                           val_loader,train_loader, root=args.output)
+
+                # T[-1][0] = 100+rewards
+                # final_reward = T[-1][0]
+                # print('final_reward: {}\n'.format(final_reward))
+                # print('best_accuracy: {}\n'.format(best_accuracy))
+
+
+        # Saving reward and is_terminals:
+            memory.rewards.append(reward)
+            memory.is_terminals.append(done)
+
+            # update if its time
+            if time_step % update_timestep == 0:
+                # start = time.time()
+
+                print("-*"*10,"start training the RL agent","-*"*10)
+                agent.update(memory)
+                memory.clear_memory()
+                time_step = 0
+
+                # end = time.time()
+                # times.append(end-start)
+
+                print("-*"*10,"start search the pruning policies","-*"*10)
+
+
+            running_reward += reward
+            if render:
+                env.render()
+            if done:
+                break
+
+        avg_length += t
+
+        # stop training if avg_reward > solved_reward
+        if (i_episode % log_interval)!=0 and running_reward/(i_episode % log_interval) > (solved_reward):
+            print("########## Solved! ##########")
+            torch.save(agent.policy.state_dict(), './rl_solved_{}.pth'.format(env_name))
+            break
+
+        # save every 500 episodes
+        if i_episode % 500 == 0:
+            torch.save(agent.policy.state_dict(), './'+args.model+'_rl_{}.pth'.format(env_name))
+            torch.save(agent.policy.actor.graph_encoder.state_dict(),'./'+args.model+'_rl_graph_encoder_actor_{}.pth'.format(env_name))
+            torch.save(agent.policy.critic.graph_encoder_critic.state_dict(),'./'+args.model+'_rl_graph_encoder_critic_{}.pth'.format(env_name))
+        # logging
+        if i_episode % log_interval == 0:
+            avg_length = int(avg_length/log_interval)
+            running_reward = int((running_reward/log_interval))
+
+            print('Episode {} \t Avg length: {} \t Avg reward: {}'.format(i_episode, avg_length, running_reward))
+
+            running_reward = 0
+            avg_length = 0
+'''
 def train(agent, output,G,net,val_loader,args):
 
 
@@ -151,7 +276,6 @@ def train(agent, output,G,net,val_loader,args):
             T[-1][0] = 100+rewards
             final_reward = T[-1][0]
             print('final_reward: {}\n'.format(final_reward))
-            _r_.append(final_reward-100)
             print('best_accuracy: {}\n'.format(best_accuracy))
 
         # agent observe and update policy
@@ -175,7 +299,7 @@ def train(agent, output,G,net,val_loader,args):
 
     print("total time:",t_start-t_end)
 
-
+'''
 def load_model(model_name,data_root):
 
     if model_name == "resnet56":
@@ -330,32 +454,29 @@ if __name__ == "__main__":
 
 
 
-    # if args.pool_strategy == "mean":
-    #     graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
-    # elif args.pool_strategy == "diff":
-    #     graph_encoder = GraphEncoder(args.node_feature_size, 15, 18, 20, args.embedding_size, args.node_feature_size, 3, 10)
-    # else:
-    #     raise NotImplementedError
-    # graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
-    # graph_encoder.to(device)
+    if args.pool_strategy == "mean":
+        graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
+    elif args.pool_strategy == "diff":
+        graph_encoder = GraphEncoder(args.node_feature_size, 15, 18, 20, args.embedding_size, args.node_feature_size, 3, 10)
+    else:
+        raise NotImplementedError
+    graph_encoder = GraphEncoder_GCN(args.node_feature_size, args.embedding_size, args.embedding_size)
+    graph_encoder.to(device)
 
-    # env = Env(args.embedding_size,n_layer)
-    # env.to(device)
-    #
-    # params = {
-    #     "graph_encoder": graph_encoder,
-    #     "env": env
-    # }
+    env = Env(args.embedding_size,n_layer)
+    env.to(device)
+
+    params = {
+        "graph_encoder": graph_encoder,
+        "env": env
+    }
 
     agent = DDPG(args.node_feature_size,nb_states, nb_actions, args)
     agent.cuda()
 
 
-
-    train(agent, args.output, G, net, val_loader, args)
-    print(_r_)
-    print(_r_[25:])
-
+    n_layer,layer_share = get_num_hidden_layer(net,args)
+    search(env,layer_share,args)
 #python agmc_network_pruning.py --dataset cifar10 --model resnet20 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --output ./logs
 
 #python agmc_network_pruning.py --dataset cifar10 --model resnet56 --compression_ratio 0.5 --pruning_method cp --train_episode 300 --output ./logs

@@ -16,8 +16,8 @@ from torchvision import models
 
 from data import resnet
 from lib.Utils import accuracy, AverageMeter, progress_bar, get_output_folder
-from utils.NetworkPruning import channel_pruning_mobilenet, channel_pruning, real_pruning
-from utils.SplitDataset import get_dataset
+from utils.network_pruning import channel_pruning_mobilenet, channel_pruning, real_pruning
+from utils.split_data import get_dataset
 
 
 def parse_args():

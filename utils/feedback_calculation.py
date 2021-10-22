@@ -3,7 +3,7 @@ import time
 from torch import optim
 
 from fine_tune import train_model, train_model_top5
-from utils.NetworkPruning import *
+from utils.network_pruning import *
 
 import torch
 import torch.nn as nn

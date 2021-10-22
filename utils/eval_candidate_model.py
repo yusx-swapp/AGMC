@@ -1,7 +1,8 @@
+from torch.backends import cudnn
 from torchvision import datasets
 
 from data import resnet
-from utils.NetworkPruning import *
+from utils.network_pruning import *
 from utils.feedback_calculation import *
 
 def EvalCompressedModel(args, net,val_loader,device):

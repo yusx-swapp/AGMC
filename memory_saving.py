@@ -12,13 +12,13 @@ from torchvision.transforms import transforms
 
 from data.resnet import LambdaLayer
 
-from utils.NetworkPruning import real_pruning, network_pruning, channel_pruning_mobilenet
-from utils.SplitDataset import get_split_valset_CIFAR, get_split_train_valset_CIFAR, get_split_valset_ImageNet, \
+from utils.network_pruning import real_pruning, network_pruning, channel_pruning_mobilenet
+from utils.split_data import get_split_valset_CIFAR, get_split_train_valset_CIFAR, get_split_valset_ImageNet, \
     get_dataset
 from data import resnet
 import torch.backends.cudnn as cudnn
 
-from utils.TestCandidateModel import EvalCompressedModel
+from utils.eval_candidate_model import EvalCompressedModel
 from utils.feedback_calculation import top5validate
 
 
