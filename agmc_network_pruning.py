@@ -137,21 +137,21 @@ def search(env,layer_share,args):
     running_reward = 0
     avg_length = 0
     time_step = 0
-    observation = None
+    state = None
 
     print("-*"*10,"start search the pruning policies","-*"*10)
     # training loop
     for i_episode in range(1, max_episodes+1):
-        state = env.reset()
-        if observation is None:
-            observation = G
-            agent.reset(observation)
+        # state = env.reset()
+        if state is None:
+            state = G
+            # agent.reset(observation)
         for t in range(max_timesteps):
             time_step +=1
             # Running policy_old:
             action = agent.select_action(state, memory)
             # state, reward, done = env.step(action,t+1)
-            observation2,reward, done = observation, 0,True
+            state,reward, done = state, 0,True
 
 
             if done:  # end of episode
