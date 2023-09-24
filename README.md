@@ -1,5 +1,8 @@
-# Formal Code Base Would Be Released At Oct. 24 (This version is for reproducibility test)
+# (This version is for reproducibility test)
+**Thank you for your interest. If you are working on network pruning or model compression, we improved the AGMC it has been merged into our new method, GNN-RL, and you can find it here:
+https://github.com/yusx-swapp/GNN-RL-Model-Compression/**
 
+**The AGMC is no longer maintained.**
 # AGMC
 AGMC: Auto Graph encoder-decoder for Model Compression and Network Acceleration
 
